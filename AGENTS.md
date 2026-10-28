@@ -32,7 +32,7 @@ Task data is **in-memory only** — all tasks are lost on server restart. Only `
 
 ## MCP / Liberty-specific patterns
 
-- `@Tool` annotation: `description`, `annotations` (`readOnlyHint`, `destructiveHint`, `openWorldHint`) — always set all three hints explicitly.
+- `@Tool` annotation: set `description`. The optional `annotations` hints (`readOnlyHint`, `destructiveHint`, `openWorldHint`) are not used in this project.
 - `@ToolArg(name, description)` on each parameter. For non-string types (dates, datetimes), add `@Schema(jsonSchemaString)` to tell the MCP layer the expected format.
 - `@Schema` takes a raw JSON Schema string as a constant — declare these as `private static final String` (or instance `final` if non-static method context requires it).
 - Use `ToolCallException` (from `io.openliberty.mcp.tools`) to signal tool-level failures; do not throw generic exceptions.

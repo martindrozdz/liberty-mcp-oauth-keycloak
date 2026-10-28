@@ -20,30 +20,27 @@ public class TaskTools {
     @Inject
     HttpServletRequest httpRequest;
 
-    @Tool(description = "Create a new task. The task starts with status TODO and is owned by the current user.",
-          annotations = @Tool.Annotations(destructiveHint = false, openWorldHint = false))
+    @Tool(description = "Create a task")
     public String createTask(
-            @ToolArg(name = "title", description = "Short title of the task") String title,
-            @ToolArg(name = "description", description = "Longer description of the task") String description) {
+            @ToolArg(name = "title", description = "Task title") String title,
+            @ToolArg(name = "description", description = "Task description") String description) {
 
         String owner = httpRequest.getUserPrincipal().getName();
         Task task = taskService.create(title, description, owner);
         return "Created task " + task.getId() + " \"" + task.getTitle() + "\" for " + owner + ".";
     }
 
-    @Tool(description = "List all tasks with their id, title, status and owner",
-          annotations = @Tool.Annotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
+    @Tool(description = "List all tasks")
     public String listTasks() {
         return taskService.list().stream()
                 .map(task -> task.getId() + ". " + task.getTitle() + " [" + task.getStatus() + "] (owner: " + task.getOwner() + ")")
                 .collect(Collectors.joining("\n", "Tasks:\n", ""));
     }
 
-    @Tool(description = "Change the status of a task. Only the task owner or a taskadmin may update it.",
-          annotations = @Tool.Annotations(destructiveHint = false, openWorldHint = false))
+    @Tool(description = "Change a task's status")
     public String updateTask(
-            @ToolArg(name = "id", description = "Id of the task to update") long id,
-            @ToolArg(name = "status", description = "New status: TODO, IN_PROGRESS or DONE") Task.Status status) {
+            @ToolArg(name = "id", description = "Task id") long id,
+            @ToolArg(name = "status", description = "New status") Task.Status status) {
 
         Task task = taskService.get(id);
         if (task == null) {
@@ -60,11 +57,10 @@ public class TaskTools {
         return "Task " + id + " is now " + status + ".";
     }
 
-    @Tool(description = "Delete a task. Restricted to users with the taskadmin role.",
-          annotations = @Tool.Annotations(destructiveHint = true, openWorldHint = false))
+    @Tool(description = "Delete a task (admin only)")
     @RolesAllowed("taskadmin")
     public String deleteTask(
-            @ToolArg(name = "id", description = "Id of the task to delete") long id) {
+            @ToolArg(name = "id", description = "Task id") long id) {
 
         if (!taskService.delete(id)) {
             throw new ToolCallException("No task found with id " + id + ".");
@@ -72,8 +68,7 @@ public class TaskTools {
         return "Task " + id + " has been deleted.";
     }
 
-    @Tool(description = "Print a message to the server log. Restricted to users with the taskadmin role.",
-          annotations = @Tool.Annotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
+    @Tool(description = "Show the current user (admin only)")
     @RolesAllowed("taskadmin")
     public String printUser() {
         String currentUser = httpRequest.getUserPrincipal().getName();

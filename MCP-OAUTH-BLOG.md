@@ -119,7 +119,7 @@ If Sam doesn't have either the taskadmin or taskuser role in his access token th
 ### Authorization Pattern 1 - Identity Check
 
 The createTask tool (see java below) injects the HttpServletRequest (jakarta.servlet.http.HttpServletRequest).
-Liberty reads the UserPrincipal.name field from the validated token (see line 15 below) to see which user was authorised to create the task.
+Liberty reads the UserPrincipal.name field from the validated token (see line 14 below) to see which user was authorised to create the task.
 ```java
    1  @ApplicationScoped
    2  public class TaskTools {
@@ -130,61 +130,74 @@ Liberty reads the UserPrincipal.name field from the validated token (see line 15
    7      @Inject
    8      HttpServletRequest httpRequest;
    9
-  10      @Tool(description = "Create a new task. The task starts with status TODO and is owned by the current user.",
-  11            annotations = @Tool.Annotations(destructiveHint = false, openWorldHint = false))
-  12      public String createTask(
-  13              @ToolArg(name = "title") String title,
-  14              @ToolArg(name = "description") String description) {
-  15          String owner = httpRequest.getUserPrincipal().getName();
-  16          Task task = taskService.create(title, description, owner);
-  17          return "Created task " + task.getId() + " \"" + task.getTitle() + "\" for " + owner + ".";
-  18      }
-  19  }
+  10      @Tool(description = "Create a task")
+  11      public String createTask(
+  12              @ToolArg(name = "title") String title,
+  13              @ToolArg(name = "description") String description) {
+  14          String owner = httpRequest.getUserPrincipal().getName();
+  15          Task task = taskService.create(title, description, owner);
+  16          return "Created task " + task.getId() + " \"" + task.getTitle() + "\" for " + owner + ".";
+  17      }
+  18  }
 ```
 
 `getUserPrincipal().getName()` returns the `preferred_username` claim from the token (as shown in the `server.xml`).
 The task is saved with the authorised user as its owner, namely Sam who created a task through IBM Bob.
 
-Failures are reported with `ToolCallException`, so the client receives a proper tool-level error instead of a generic server error.
-
 
 ### Authorisation Pattern 2 - Role check
 
-The deleteTask tool uses `@RolesAllowed("taskadmin")` (line 3 below).
-Liberty checks the roles in the token before the method runs, so a user without the taskadmin role gets an HTTP 403 and the tool body never executes.
+The updateTask tool injects the HttpServletRequest (jakarta.servlet.http.HttpServletRequest) and calls `isUserInRole` to ask whether the authenticated user has the necessary role.
+The method runs either way. The code decides what to do with the answer.
+
+See line 3 below, which extracts the role information into the isAdmin boolean variable.
 ```java
-   1      @Tool(description = "Delete a task. Restricted to users with the taskadmin role.",
-   2            annotations = @Tool.Annotations(destructiveHint = true, openWorldHint = false))
-   3      @RolesAllowed("taskadmin")
-   4      public String deleteTask(
-   5              @ToolArg(name = "id") long id) {
+   1      public String updateTask(long id, Task.Status status) {
               ...
-   6      }
+   2          // Liberty maps the groupIds claim in the token to roles
+   3          boolean isAdmin = httpRequest.isUserInRole("taskadmin");
+              ...
+   4      }
 ```
 
 ### Authorisation Pattern 3 - Role and Identity check combined
 
 The updateTask tool requires two checks:
-- line 8 - Identity check
-- line 9 - Role check
+- line 7 - Identity check
+- line 8 - Role check
 ```java
-   1      @Tool(description = "Change the status of a task. Only the task owner or a taskadmin may update it.",
-   2            annotations = @Tool.Annotations(destructiveHint = false, openWorldHint = false))
-   3      public String updateTask(
-   4              @ToolArg(name = "id") long id,
-   5              @ToolArg(name = "status") Task.Status status) {
-   6          Task task = taskService.get(id);
+   1      @Tool(description = "Change a task's status")
+   2      public String updateTask(
+   3              @ToolArg(name = "id") long id,
+   4              @ToolArg(name = "status") Task.Status status) {
+   5          Task task = taskService.get(id);
               ...
-   7
-   8          String currentUser = httpRequest.getUserPrincipal().getName();
-   9          boolean isAdmin = httpRequest.isUserInRole("taskadmin");
-  10
-  11          if (!isAdmin && !task.getOwner().equals(currentUser)) {
-  12              throw new ToolCallException("Not authorised. Only the task owner or a taskadmin may update it.");
-  13          }
+   6
+   7          String currentUser = httpRequest.getUserPrincipal().getName();
+   8          boolean isAdmin = httpRequest.isUserInRole("taskadmin");
+   9
+  10          if (!isAdmin && !task.getOwner().equals(currentUser)) {
+  11              throw new ToolCallException("Not authorised. Only the task owner or a taskadmin may update it.");
+  12          }
               ...
-  14      }
+  13      }
 ```
+
+### Authorisation Pattern 4 - Declarative role check with @RolesAllowed
+
+The deleteTask tool does not check the role in its own code. It is annotated with `@RolesAllowed("taskadmin")` (line 2 below), and Liberty checks the roles in the token before the method is called.
+A user without the taskadmin role is refused with an HTTP 403 and the tool body never executes.
+```java
+   1      @Tool(description = "Delete a task (admin only)")
+   2      @RolesAllowed("taskadmin")
+   3      public String deleteTask(
+   4              @ToolArg(name = "id") long id) {
+              ...
+   5      }
+```
+
+Use this pattern when a tool is allowed for a role and nobody else, as with delete.
+Use patterns 2 and 3 when the decision depends on more than the role, as with update, where the task owner is also allowed.
 
 
 ## Keycloak
@@ -542,9 +555,16 @@ When Keycloak and the MCP server are configured and running, connecting Bob to t
 ```json
 {
   "mcpServers": {
-    "task-mcp-server": {
-      "type": "streamable-http"
-      "url": "https://localhost:9443/mcp"
+    "task-server": {
+      "type": "streamable-http",
+      "url": "https://localhost:9443/mcp",
+      "disabled": false,
+      "alwaysAllow": [
+        "createTask",
+        "listTasks",
+        "getMyTasks",
+        "printUser"
+      ]
     }
   }
 }
