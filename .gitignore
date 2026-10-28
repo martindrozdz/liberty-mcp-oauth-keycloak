@@ -1,0 +1,15 @@
+# Secrets and keystores
+src/main/keycloak/localhost.p12
+src/main/liberty/config/resources/security/localhost.p12
+src/main/liberty/config/server.env
+
+# Generated keystores / certs at project root
+localhost.p12
+localhost.crt
+.env
+
+# Maven build output
+target/
+
+# OS artefacts
+.DS_Store

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<server description="liberty-mcp-starter">
+
+    <featureManager>
+        <platform>jakartaee-10.0</platform>
+        <feature>mcp-1.0</feature>
+        <feature>appSecurity</feature>
+        <feature>openidConnectClient-1.0</feature>
+    </featureManager>
+
+    <!-- Default HTTP/HTTPS endpoints -->
+    <httpEndpoint id="defaultHttpEndpoint"
+                  host="localhost"
+                  httpPort="9080"
+                  httpsPort="9443" />
+
+    <!-- Automatically expand WAR files -->
+    <applicationManager autoExpand="true" />
+
+    <!-- Application deployment -->
+    <webApplication id="liberty-mcp-starter"
+                    location="liberty-mcp-starter.war"
+                    contextRoot="/">
+        <mcp stateless="true">
+            <info name="mcp-demo-server"
+                  version="0.7"/>
+        </mcp>
+    </webApplication>
+
+    <logging traceSpecification="MCP=all:com.ibm.ws.security.openidconnect*=all:io.openliberty.security.oidcclient.wellknown*=all:com.ibm.ws.security.oauth*=all"/>
+    <!-- TLS/SSL defaults (Liberty generates a dev certificate automatically) -->
+    <ssl id="defaultSSLConfig" trustDefaultCerts="true" />
+
+    <keyStore id="defaultKeyStore" password="${keystore_password}" location="localhost.p12"/>
+
+    <openidConnectClient
+        id="mcp-oidc-config"
+        clientId="liberty-mcp-server"
+        clientSecret="${OAUTH_CLIENT_SECRET}"
+        discoveryEndpointUrl="https://localhost:8443/realms/liberty-demo/.well-known/openid-configuration"
+        authFilterRef="mcp-auth-filter"
+        signatureAlgorithm="FROM_HEADER"
+        allowedSignatureAlgorithms="HS256,RS256"
+        audiences="liberty-mcp-server"
+        userIdentifier="preferred_username"
+        inboundPropagation="required"
+        tokenReuse="true">
+        <protectedResourceMetadata advertisedScopes="mcp-demo-server,openid,profile"/>
+    </openidConnectClient>
+
+    <authFilter id="mcp-auth-filter">
+        <requestUrl
+            urlPattern="/mcp"
+            matchType="contains" />
+    </authFilter>
+
+</server>

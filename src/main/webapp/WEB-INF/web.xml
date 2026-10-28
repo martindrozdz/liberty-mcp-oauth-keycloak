@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd"
+         version="6.0">
+
+    <!--
+        Security constraint on all URLs (/*).
+
+        Purpose: Tells Liberty's servlet container that every resource in this
+        application requires an authenticated user who holds at least one of the
+        declared roles (roomadmin or roomuser).  This is what causes Liberty to
+        trigger the OpenID Connect login redirect to Keycloak when an
+        unauthenticated request arrives — without this constraint the OIDC filter
+        in server.xml would still intercept /mcp requests, but a plain browser
+        visit to any other URL would be served anonymously.
+
+        Important: The auth-constraint requires Liberty to map the roles from the
+        incoming identity (JWT claim realm_access.roles) to servlet container
+        roles via the groupIdentifier attribute on <openidConnectClient> in
+        server.xml.  If that mapping is absent Liberty will authenticate the user
+        successfully but still deny access with CWWKS9104A because it cannot find
+        the roles in its own registry.
+    -->
+    <security-constraint>
+        <web-resource-collection>
+            <web-resource-name>All resources</web-resource-name>
+            <url-pattern>/*</url-pattern>
+        </web-resource-collection>
+        <auth-constraint>
+            <role-name>roomadmin</role-name>
+            <role-name>roomuser</role-name>
+        </auth-constraint>
+    </security-constraint>
+
+    <!--
+        Role declarations referenced by the auth-constraint above.
+        roomuser  — standard user, can query and book rooms.
+        roomadmin — privileged user, can also create and delete rooms.
+        These names must match the realm roles assigned to users in Keycloak
+        and the roles carried in the realm_access.roles JWT claim.
+    -->
+    <security-role>
+        <role-name>roomadmin</role-name>
+    </security-role>
+
+    <security-role>
+        <role-name>roomuser</role-name>
+    </security-role>
+
+</web-app>
