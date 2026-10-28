@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "oauth-blog": {
+      "type": "streamable-http",
+      "url": "https://localhost:9443/mcp",
+      "disabled": false
+    }
+  }
+}
