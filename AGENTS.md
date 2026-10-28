@@ -4,9 +4,7 @@ This file provides guidance to agents when working with code in this repository.
 
 ## Goal
 
-Get OAuth to work end-to-end with three MCP clients:
-- **MCP Inspector** — ✅ Done
-- **IBM Bob GUI** — ✅ Done
+Get OAuth to work end-to-end with **IBM Bob GUI**
 
 ## Project
 

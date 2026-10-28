@@ -72,7 +72,7 @@ public class SetupLocalKeycloak {
                 }
             }
         }
-        String adminPassword    = env.getOrDefault("keycloak_admin_password", "adminpassword123");
+        String adminPassword    = env.getOrDefault("keycloak_admin_password", "admin");
         String keystorePassword = env.getOrDefault("keystore_password",       "secretpassword123");
 
         // 4. Acquire admin token

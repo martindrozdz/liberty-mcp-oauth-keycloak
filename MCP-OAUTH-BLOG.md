@@ -234,19 +234,21 @@ services:
       - "127.0.0.1:8443:8443"
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${keycloak_admin_password}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HTTPS_KEY_STORE_FILE: /custom-keys/localhost.p12
       KC_HTTPS_KEY_STORE_PASSWORD: ${keystore_password}
     volumes:
       - ./src/main/keycloak:/custom-keys:Z,U
 ```
 
-This will download and run the keycloack image. 
+The `${keystore_password}` value is read from a `.env` file next to `docker-compose.yml`, which `docker compose` and `podman compose` load automatically. `Setup.java` creates that file for you, and it is gitignored so the password is never committed.
+
+This will download and run the keycloack image.
 
 ### Prerequisites
 
 - Keycloak Admin is reachable at `https://localhost:8443/admin`. It uses a self-signed certificate, so accept the browser warning.
-- You can log in to the **master** realm as `admin` with the password that you have setup in your environment.
+- You can log in to the **master** realm as `admin` with password `admin`.
 
 The included [SetupLocalKeycloak.java](./SetupLocalKeycloak.java) JBang script performs the steps included below.
 It uses the Keycloak Admin REST API so Keycloak and was tested on Mac OS. Please see https://www.jbang.dev/ for setup instructions.

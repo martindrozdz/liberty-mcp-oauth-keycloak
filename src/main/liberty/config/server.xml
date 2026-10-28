@@ -40,7 +40,7 @@
         discoveryEndpointUrl="https://localhost:8443/realms/liberty-demo/.well-known/openid-configuration"
         authFilterRef="mcp-auth-filter"
         signatureAlgorithm="FROM_HEADER"
-        allowedSignatureAlgorithms="HS256,RS256"
+        allowedSignatureAlgorithms="RS256"
         audiences="liberty-mcp-server"
         userIdentifier="preferred_username"
         inboundPropagation="required"
