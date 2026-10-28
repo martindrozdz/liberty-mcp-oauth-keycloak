@@ -9,7 +9,7 @@
 
         Purpose: Tells Liberty's servlet container that every resource in this
         application requires an authenticated user who holds at least one of the
-        declared roles (roomadmin or roomuser).  This is what causes Liberty to
+        declared roles (taskadmin or taskuser).  This is what causes Liberty to
         trigger the OpenID Connect login redirect to Keycloak when an
         unauthenticated request arrives — without this constraint the OIDC filter
         in server.xml would still intercept /mcp requests, but a plain browser
@@ -28,24 +28,24 @@
             <url-pattern>/*</url-pattern>
         </web-resource-collection>
         <auth-constraint>
-            <role-name>roomadmin</role-name>
-            <role-name>roomuser</role-name>
+            <role-name>taskadmin</role-name>
+            <role-name>taskuser</role-name>
         </auth-constraint>
     </security-constraint>
 
     <!--
         Role declarations referenced by the auth-constraint above.
-        roomuser  — standard user, can query and book rooms.
-        roomadmin — privileged user, can also create and delete rooms.
+        taskuser  — standard user, can query, create and update tasks.
+        taskadmin — privileged user, can also delete tasks.
         These names must match the realm roles assigned to users in Keycloak
         and the roles carried in the realm_access.roles JWT claim.
     -->
     <security-role>
-        <role-name>roomadmin</role-name>
+        <role-name>taskadmin</role-name>
     </security-role>
 
     <security-role>
-        <role-name>roomuser</role-name>
+        <role-name>taskuser</role-name>
     </security-role>
 
 </web-app>

@@ -1,9 +1,17 @@
 {
   "mcpServers": {
-    "oauth-blog": {
+    "task-server": {
       "type": "streamable-http",
       "url": "https://localhost:9443/mcp",
-      "disabled": false
+      "disabled": false,
+      "alwaysAllow": [
+        "deleteTask",
+        "createTask",
+        "listTasks",
+        "getMyTasks",
+        "updateTask",
+        "printUser"
+      ]
     }
   }
 }

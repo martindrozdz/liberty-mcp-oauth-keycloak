@@ -9,15 +9,15 @@
 
 **Our demo**
 
-An AI assistant that can book a meeting room for you is useful. 
-An AI assistant that allows anyone to impersonate you and book or cancel a room without your permission is a liability.
+An AI assistant that can manage your tasks for you is useful.
+An AI assistant that allows anyone to impersonate you and update or delete your tasks without your permission is a liability.
 
 The moment an MCP server authorises a person to perform an action, it should know:
 - who that person is (via a username) and
 - what they are allowed to do (via a role) and
 - that the person is who they say they are (authentication)
 
-This blog explains how a hotel booking demo that we created does that and covers:
+This blog explains how a task editor demo that we created does that and covers:
 - the Open Liberty MCP server setup
 - the Keycloak authorisation server setup
 - how to get IBM Bob (the AI assistant) to trust the Open Liberty MCP Server and Keycloak  
@@ -97,20 +97,20 @@ There are two layers of authorisation here:
    4          <url-pattern>/*</url-pattern>
    5      </web-resource-collection>
    6      <auth-constraint>
-   7          <role-name>roomadmin</role-name>
-   8          <role-name>roomuser</role-name>
+   7          <role-name>taskadmin</role-name>
+   8          <role-name>taskuser</role-name>
    9      </auth-constraint>
   10  </security-constraint>
   11
   12  <security-role>
-  13      <role-name>roomadmin</role-name>
+  13      <role-name>taskadmin</role-name>
   14  </security-role>
   15  <security-role>
-  16      <role-name>roomuser</role-name>
+  16      <role-name>taskuser</role-name>
   17  </security-role>
 ```
 Lines 7,8,13,16 tell the MCP server which roles Sam needs to have in his token. 
-If Sam doesn't have either the roomadmin or roomuser role in his access token then he cannot access any of the URLs that he needs on the MCP Server. 
+If Sam doesn't have either the taskadmin or taskuser role in his access token then he cannot access any of the URLs that he needs on the MCP Server.
 
 
 ## The Java
@@ -118,97 +118,72 @@ If Sam doesn't have either the roomadmin or roomuser role in his access token th
 
 ### Authorization Pattern 1 - Identity Check
 
-The bookRoom tool (see java below) injects the HttpServletRequest (jakarta.servlet.http.HttpServletRequest).
-Liberty reads the UserPrincipal.name field from the validated token (see line 17 below) to see which user was authorised to book the room. 
+The createTask tool (see java below) injects the HttpServletRequest (jakarta.servlet.http.HttpServletRequest).
+Liberty reads the UserPrincipal.name field from the validated token (see line 15 below) to see which user was authorised to create the task.
 ```java
    1  @ApplicationScoped
-   2  public class RoomTools {
+   2  public class TaskTools {
    3
    4      @Inject
-   5      RoomService roomService;
+   5      TaskService taskService;
    6
    7      @Inject
    8      HttpServletRequest httpRequest;
    9
-  10      @Tool(description = "Book a room for a given time period",
+  10      @Tool(description = "Create a new task. The task starts with status TODO and is owned by the current user.",
   11            annotations = @Tool.Annotations(destructiveHint = false, openWorldHint = false))
-  12      public String bookRoom(
-  13              @ToolArg(name = "roomName") String roomName,
-  14              @ToolArg(name = "start")  LocalDateTime start,
-  15              @ToolArg(name = "end") LocalDateTime end) {
-  16
-  17          String bookedBy = httpRequest.getUserPrincipal().getName();
-  18          boolean success = roomService.bookRoom(roomName, start, end, bookedBy);
-  19
-  20          if (success) {
-  21              return "Room \"" + roomName + "\" successfully booked for " + bookedBy
-  22                      + " from " + start + " to " + end + ".";
-  23          } else {
-  24              throw new ToolCallException("Failed to book room \"" + roomName + "\". "
-  25                      + "The room may not exist or the requested time slot is already taken.");
-  26          }
-  27      }
-  28  }
+  12      public String createTask(
+  13              @ToolArg(name = "title") String title,
+  14              @ToolArg(name = "description") String description) {
+  15          String owner = httpRequest.getUserPrincipal().getName();
+  16          Task task = taskService.create(title, description, owner);
+  17          return "Created task " + task.getId() + " \"" + task.getTitle() + "\" for " + owner + ".";
+  18      }
+  19  }
 ```
 
-`getUserPrincipal().getName()` returns the `preferred_username` claim from the token (as shown in the `server.xml`). 
-The booking is saved with the authorised user, namely Sam who initially booked a room through IBM Bob.
+`getUserPrincipal().getName()` returns the `preferred_username` claim from the token (as shown in the `server.xml`).
+The task is saved with the authorised user as its owner, namely Sam who created a task through IBM Bob.
 
 Failures are reported with `ToolCallException`, so the client receives a proper tool-level error instead of a generic server error.
 
 
 ### Authorisation Pattern 2 - Role check
 
-The HttpServletRequest (jakarta.servlet.http.HttpServletRequest) is again injected by the getRoomBookingsOnDay tool.
-Liberty uses the isUserInRole method to check if the authenticated user has the necessary role. 
-
-See line 6 below which extracts the role information into the isAdmin boolean variable for an example of this.
+The deleteTask tool uses `@RolesAllowed("taskadmin")` (line 3 below).
+Liberty checks the roles in the token before the method runs, so a user without the taskadmin role gets an HTTP 403 and the tool body never executes.
 ```java
-   1      @Tool(description = "Show all bookings for a room on a particular day",
-   2            annotations = @Tool.Annotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
-   3      public String getRoomBookingsOnDay(
-   4              @ToolArg(name = "roomName") String roomName,
-   5              @ToolArg(name = "day") LocalDate day) {
+   1      @Tool(description = "Delete a task. Restricted to users with the taskadmin role.",
+   2            annotations = @Tool.Annotations(destructiveHint = true, openWorldHint = false))
+   3      @RolesAllowed("taskadmin")
+   4      public String deleteTask(
+   5              @ToolArg(name = "id") long id) {
               ...
-   6          boolean isAdmin = httpRequest.isUserInRole("roomadmin");
-   7          // ... filter the bookings for the day ...
-   8          for (Room.BookingSlot slot : bookingsOnDay) {
-   9              sb.append("  ").append(slot.getStart().toLocalTime())
-  10                .append(" - ").append(slot.getEnd().toLocalTime());
-  11              if (isAdmin) {
-  12                  sb.append(" (booked by: ").append(slot.getBookedBy()).append(")");
-  13              } else if (slot.getBookedBy().equals(httpRequest.getUserPrincipal().getName())) {
-  14                  sb.append(" (booked by you)");
-  15              }
-  16              sb.append("\n");
-  17          }
-  18          return sb.toString().trim();
-  19      }
+   6      }
 ```
 
 ### Authorisation Pattern 3 - Role and Identity check combined
 
-The cancelBooking tool requires two checks:
-- line 7 - Identity check
-- line 8 - Role check
+The updateTask tool requires two checks:
+- line 8 - Identity check
+- line 9 - Role check
 ```java
-   1      @Tool(description = "Cancel a room booking. ",
-   2            annotations = @Tool.Annotations(openWorldHint = false))
-   3      public String cancelBooking(
-   4              @ToolArg(name = "roomName") String roomName,
-   5              @ToolArg(name = "start") LocalDateTime start,
-   6              @ToolArg(name = "end") LocalDateTime end) {
+   1      @Tool(description = "Change the status of a task. Only the task owner or a taskadmin may update it.",
+   2            annotations = @Tool.Annotations(destructiveHint = false, openWorldHint = false))
+   3      public String updateTask(
+   4              @ToolArg(name = "id") long id,
+   5              @ToolArg(name = "status") Task.Status status) {
+   6          Task task = taskService.get(id);
               ...
-   7          String currentUser = httpRequest.getUserPrincipal().getName();
-   8          boolean isAdmin = httpRequest.isUserInRole("roomadmin");
-   9
-  10          if (!isAdmin && !slot.get().getBookedBy().equals(currentUser)) {
-  11              throw new ToolCallException("Not authorised");
-  12          }
-  13
-  14          roomService.cancelRoom(roomName, start, end);
-  15          return "Booking for room \"" + roomName + "\" from " + start + " to " + end + " has been cancelled.";
-  16      }
+   7
+   8          String currentUser = httpRequest.getUserPrincipal().getName();
+   9          boolean isAdmin = httpRequest.isUserInRole("taskadmin");
+  10
+  11          if (!isAdmin && !task.getOwner().equals(currentUser)) {
+  12              throw new ToolCallException("Not authorised. Only the task owner or a taskadmin may update it.");
+  13          }
+              ...
+  14      }
 ```
 
 
@@ -266,8 +241,8 @@ All following steps are done inside the `liberty-demo` realm. Select it in the r
 
 Go to **Realm roles** → **Create role**. Create two roles, each with just a name:
 
-1. `roomuser`
-2. `roomadmin`
+1. `taskuser`
+2. `taskadmin`
 
 ### Create the client `liberty-mcp-server`
 
@@ -331,13 +306,13 @@ Tokens now carry `aud: liberty-mcp-server`, which Liberty checks through `audien
 3. Leave the other fields (Realm Role prefix, client ID) at their defaults.
 4. Click **Save**.
 
-Realm roles are now copied into a `groupIds` array. Liberty uses `groupIds` as its default group identifier, so `isUserInRole("roomadmin")` works in the tool beans.
+Realm roles are now copied into a `groupIds` array. Liberty uses `groupIds` as its default group identifier, so `isUserInRole("taskadmin")` works in the tool beans.
 
 #### Map the realm roles to the scope
 
 1. Go to **Client scopes** → `mcp-demo-server` → **Scope** tab.
 2. Click **Assign role**.
-3. Filter by **realm roles**, select `roomuser` and `roomadmin`, then click **Assign**.
+3. Filter by **realm roles**, select `taskuser` and `taskadmin`, then click **Assign**.
 
 The client's "Full scope allowed" setting (**Clients** → `liberty-mcp-server` → **Client scopes** → `liberty-mcp-server-dedicated` → **Scope**) is left at its default.
 
@@ -354,7 +329,7 @@ Go to **Users** → **Add user**. Create both users with the values below.
 | First name | `Test` | `Test` |
 | Last name | `Admin` | `User` |
 | Password | `testadmin123` | `testuser123` |
-| Role | roomadmin | roomuser |
+| Role | taskadmin | taskuser |
 
 For each user:
 
@@ -389,8 +364,8 @@ The decoded access token (see json below) should contain:
   • Line 36: scope includes mcp-demo-server
   This scope maps the Keycloak realm roles into groupIds
   
-  • Lines 38–43: groupIds is a non-empty array containing roomadmin
-  Open liberty only reads roles from groupIds. Open Libertie's web.xml must contain roomadmin, otherwise the MCP tools will not be called.
+  • Lines 38–43: groupIds is a non-empty array containing taskadmin
+  Open liberty only reads roles from groupIds. Open Libertie's web.xml must contain taskadmin, otherwise the MCP tools will not be called.
   
   • Line 45: preferred_username is testadmin 
   Open liberty uses this for for getUserPrincipal().getName()
@@ -416,7 +391,7 @@ The decoded access token (see json below) should contain:
     19    "realm_access": {
     20      "roles": [
     21        "default-roles-liberty-demo",
-    22        "roomadmin",
+    22        "taskadmin",
     23        "offline_access",
     24        "uma_authorization"
     25      ]
@@ -434,7 +409,7 @@ The decoded access token (see json below) should contain:
     37    "email_verified": true,
     38    "groupIds": [
     39      "default-roles-liberty-demo",
-    40      "roomadmin",
+    40      "taskadmin",
     41      "offline_access",
     42      "uma_authorization"
     43    ],
@@ -506,10 +481,20 @@ https.get('https://localhost:9443/my-app/mcp', (res) => {
 
 Once connected to the MCP server in IBM Bob, use chat window to try:
 
-- *What rooms are available tomorrow morning?*
-- *Book a room for my 2pm meeting today.*
+- *List all the tasks.*
+- *Create a task called "Write docs" and mark it as in progress.*
+- *Delete task 3.* (`taskadmin` only)
+- *Run printUser.* (`taskadmin` only) Replies with `printUser executed for testadmin.`, confirming which identity Liberty extracted from the token.
 
-To see the role checks working, log in as `testuser` and book a room. Then connect as `testadmin` and list that room's bookings: the admin sees who made each booking, while `testuser` only sees "booked by you". `testadmin` can also cancel the booking, which an unrelated ordinary user could not.
+For example, as `testadmin`:
+
+1. *Create a task "Rotate client secret"* returns `Created task 5 "Rotate client secret" for testadmin.`
+2. *List tasks* shows the new task as `[TODO]` with owner `testadmin`.
+3. *Delete task 3* returns `Task 3 has been deleted.`
+
+Task data is held in memory only, so restarting the server clears everything you create here.
+
+To see the role checks working, log in as `testuser` and create a task. `testuser` can change the status of their own tasks but not anyone else's, and cannot delete tasks. Then connect as `testadmin`: the admin can update any task and delete tasks.
 
 
 ## Running this in production 
@@ -534,8 +519,8 @@ We do this by configuring roles for users in:
 - the Keycloak authorisation server
 
 Users are assigned to roles. Roles are used to give users permission to do certain activities. 
-Some are permissive, like a roomadmin role which lets you do almost anything.
-Some are restrictive, like a roomuser which can only see or create bookings of their own. 
+Some are permissive, like a taskadmin role which lets you do almost anything.
+Some are restrictive, like a taskuser which can only update tasks of their own. 
 
 **High-level flow:**
 
@@ -557,15 +542,15 @@ When Keycloak and the MCP server are configured and running, connecting Bob to t
 ```json
 {
   "mcpServers": {
-    "booking-mcp-server": {
+    "task-mcp-server": {
       "type": "streamable-http"
       "url": "https://localhost:9443/mcp"
     }
   }
 }
 ```
-- Locate the Bob MCP settings and find the booking-mcp-server entry.
-- Click the **Authenticate** button next to the booking-mcp-server.
+- Locate the Bob MCP settings and find the task-mcp-server entry.
+- Click the **Authenticate** button next to the task-mcp-server.
 
 
 **Detailed flow**

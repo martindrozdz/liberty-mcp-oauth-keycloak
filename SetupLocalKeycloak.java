@@ -100,9 +100,9 @@ public class SetupLocalKeycloak {
             System.out.println(" - Realm 'liberty-demo' exists");
         }
 
-        // 6. Create roles: roomuser, roomadmin
+        // 6. Create roles: taskuser, taskadmin
         System.out.println("[3/8] Configuring roles...");
-        for (String roleName : List.of("roomuser", "roomadmin")) {
+        for (String roleName : List.of("taskuser", "taskadmin")) {
             if (apiGet("/liberty-demo/roles/" + roleName).statusCode() == 404) {
                 apiPost("/liberty-demo/roles",
                     Json.createObjectBuilder().add("name", roleName).build().toString());
@@ -190,13 +190,13 @@ public class SetupLocalKeycloak {
             //
             // MUST use oidc-usermodel-realm-role-mapper (User Realm Role), NOT the predefined
             // oidc-group-membership-mapper (Group Membership). The test users hold realm roles
-            // (roomuser / roomadmin) but are not members of any Keycloak Group. The group
+            // (taskuser / taskadmin) but are not members of any Keycloak Group. The group
             // membership mapper would always emit groupIds: null for these users, causing
             // Liberty to find no roles and reject every request with CWWKS9104A.
             //
             // Liberty's openidConnectClient uses groupIds as its default groupIdentifier,
             // mapping the array values to Jakarta Security roles so that
-            // httpRequest.isUserInRole("roomadmin") works inside tool methods.
+            // httpRequest.isUserInRole("taskadmin") works inside tool methods.
             apiPost("/liberty-demo/client-scopes/" + scopeId + "/protocol-mappers/models",
                 Json.createObjectBuilder()
                     .add("name",           "groups")
@@ -214,22 +214,22 @@ public class SetupLocalKeycloak {
             System.out.println(" - Added Realm Role Mapper (groupIds) to scope");
         }
 
-        // Assign roles roomuser + roomadmin to the scope's scope-mappings (idempotent)
+        // Assign roles taskuser + taskadmin to the scope's scope-mappings (idempotent)
         JsonArray allRoles = parseArray(apiGet("/liberty-demo/roles").body());
         JsonArray existingScopeMappings = parseArray(
             apiGet("/liberty-demo/client-scopes/" + scopeId + "/scope-mappings/realm").body());
         Set<String> alreadyMapped = existingScopeMappings.stream()
             .map(v -> v.asJsonObject().getString("name", ""))
             .collect(java.util.stream.Collectors.toSet());
-        JsonObject roomuserRole  = alreadyMapped.contains("roomuser")  ? null : findObject(allRoles, "roomuser");
-        JsonObject roomadminRole = alreadyMapped.contains("roomadmin") ? null : findObject(allRoles, "roomadmin");
-        if (roomuserRole != null || roomadminRole != null) {
+        JsonObject taskuserRole  = alreadyMapped.contains("taskuser")  ? null : findObject(allRoles, "taskuser");
+        JsonObject taskadminRole = alreadyMapped.contains("taskadmin") ? null : findObject(allRoles, "taskadmin");
+        if (taskuserRole != null || taskadminRole != null) {
             JsonArrayBuilder rolesToAssign = Json.createArrayBuilder();
-            if (roomuserRole  != null) rolesToAssign.add(roomuserRole);
-            if (roomadminRole != null) rolesToAssign.add(roomadminRole);
+            if (taskuserRole  != null) rolesToAssign.add(taskuserRole);
+            if (taskadminRole != null) rolesToAssign.add(taskadminRole);
             apiPost("/liberty-demo/client-scopes/" + scopeId + "/scope-mappings/realm",
                 rolesToAssign.build().toString());
-            System.out.println(" - Assigned roles (roomuser, roomadmin) to scope 'mcp-demo-server'");
+            System.out.println(" - Assigned roles (taskuser, taskadmin) to scope 'mcp-demo-server'");
         }
 
         // 9. Configure dynamic client registration policies
@@ -280,8 +280,8 @@ public class SetupLocalKeycloak {
         // 10. Create users: testuser, testadmin
         System.out.println("[7/8] Configuring users...");
         JsonArray rolesArr = parseArray(apiGet("/liberty-demo/roles").body());
-        createUserIfNotExists("testuser", "User",  "testuser123",  findObject(rolesArr, "roomuser"));
-        createUserIfNotExists("testadmin","Admin", "testadmin123", findObject(rolesArr, "roomadmin"));
+        createUserIfNotExists("testuser", "User",  "testuser123",  findObject(rolesArr, "taskuser"));
+        createUserIfNotExists("testadmin","Admin", "testadmin123", findObject(rolesArr, "taskadmin"));
 
         // 11. Write server.env
         System.out.println("[8/8] Writing server.env...");

@@ -26,9 +26,9 @@ podman compose up         # Start Keycloak container (also accepts docker compos
 MCP tools are plain CDI `@ApplicationScoped` beans. Any method annotated with `@Tool` (from `org.mcpjava.server.tools`) is automatically exposed as an MCP tool — no registration, no routing code needed.
 
 Packages:
-- `com.example.rooms` — `RoomTools` (tool bean) + `RoomService` (`@ApplicationScoped`, in-memory store) + `Room` (entity)
+- `com.example.tasks` — `TaskTools` (tool bean) + `TaskService` (`@ApplicationScoped`, in-memory store) + `Task` (entity, with nested `Status` enum)
 
-Room data is **in-memory only** — all bookings are lost on server restart.
+Task data is **in-memory only** — all tasks are lost on server restart. Only `taskadmin` may delete tasks.
 
 ## MCP / Liberty-specific patterns
 
