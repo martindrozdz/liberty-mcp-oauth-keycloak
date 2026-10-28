@@ -244,26 +244,37 @@ public class SetupLocalKeycloak {
             System.out.println(" - Deleted Trusted Hosts policy");
         }
 
-        // RC-4: Set allowed client scopes for dynamic registration
-        // The config key matches the providerId (legacy: "allowed-client-templates")
-        String allowedScopesId = findIdByProviderId(components, "allowed-client-templates");
-        if (allowedScopesId == null) allowedScopesId = findIdByProviderId(components, "allowed-client-scopes");
-        if (allowedScopesId != null) {
-            JsonObject allowedScopesComp = findObjectById(components, allowedScopesId);
-            String resolvedProviderId = allowedScopesComp.getString("providerId", "allowed-client-templates");
-            apiPut("/liberty-demo/components/" + allowedScopesId,
+        // RC-4: Set allowed client scopes for dynamic registration.
+        // The provider ID is the legacy "allowed-client-templates", but the config KEY Keycloak
+        // reads is "allowed-client-scopes" (ClientScopesClientRegistrationPolicyFactory.ALLOWED_CLIENT_SCOPES).
+        // One policy exists per subType (anonymous + authenticated); update all of them.
+        for (JsonValue v : components) {
+            JsonObject comp = v.asJsonObject();
+            if (!"allowed-client-templates".equals(comp.getString("providerId", ""))) continue;
+            // Keep other existing config entries, replace the scope list and force
+            // "allow-default-scopes" on (realm default scopes are then allowed in addition to the list).
+            JsonObjectBuilder cfg = Json.createObjectBuilder();
+            JsonObject oldCfg = comp.getJsonObject("config");
+            if (oldCfg != null) {
+                oldCfg.forEach((k, val) -> {
+                    if (!k.equals("allowed-client-scopes") && !k.equals("allowed-client-templates")
+                            && !k.equals("allow-default-scopes")) cfg.add(k, val);
+                });
+            }
+            cfg.add("allowed-client-scopes", Json.createArrayBuilder()
+                .add("mcp-demo-server").add("profile").add("openid"));
+            cfg.add("allow-default-scopes", Json.createArrayBuilder().add("true"));
+            apiPut("/liberty-demo/components/" + comp.getString("id"),
                 Json.createObjectBuilder()
-                    .add("id",           allowedScopesId)
-                    .add("name",         allowedScopesComp.getString("name", "Allowed Client Scopes"))
-                    .add("providerId",   resolvedProviderId)
+                    .add("id",           comp.getString("id"))
+                    .add("name",         comp.getString("name", "Allowed Client Scopes"))
+                    .add("providerId",   "allowed-client-templates")
                     .add("providerType", "org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy")
-                    .add("parentId",     allowedScopesComp.getString("parentId", "liberty-demo"))
-                    .add("subType",      allowedScopesComp.getString("subType",  "anonymous"))
-                    .add("config", Json.createObjectBuilder()
-                        .add(resolvedProviderId, Json.createArrayBuilder()
-                            .add("mcp-demo-server").add("profile").add("openid").add("offline_access")))
+                    .add("parentId",     comp.getString("parentId", "liberty-demo"))
+                    .add("subType",      comp.getString("subType",  "anonymous"))
+                    .add("config", cfg)
                     .build().toString());
-            System.out.println(" - Configured allowed client scopes for dynamic registration");
+            System.out.println(" - Configured allowed client scopes (" + comp.getString("subType", "?") + ")");
         }
 
         // 10. Create users: testuser, testadmin
@@ -345,23 +356,6 @@ public class SetupLocalKeycloak {
         return arr.stream()
             .map(JsonValue::asJsonObject)
             .filter(o -> name.equals(o.getString("name", "")))
-            .findFirst().orElse(null);
-    }
-
-    /** Returns the "id" field of the first element whose "providerId" matches, or null. */
-    private static String findIdByProviderId(JsonArray arr, String providerId) {
-        return arr.stream()
-            .map(JsonValue::asJsonObject)
-            .filter(o -> providerId.equals(o.getString("providerId", "")))
-            .map(o -> o.getString("id"))
-            .findFirst().orElse(null);
-    }
-
-    /** Returns the first element whose "id" matches, or null. */
-    private static JsonObject findObjectById(JsonArray arr, String id) {
-        return arr.stream()
-            .map(JsonValue::asJsonObject)
-            .filter(o -> id.equals(o.getString("id", "")))
             .findFirst().orElse(null);
     }
 
