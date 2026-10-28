@@ -13,6 +13,7 @@ import org.mcpjava.server.tools.ToolArg;
 
 import io.openliberty.mcp.annotations.Schema;
 import io.openliberty.mcp.tools.ToolCallException;
+import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
@@ -137,6 +138,14 @@ public class RoomTools {
               .append("\n");
         }
         return sb.toString().trim();
+    }
+
+    @Tool(description = "Print a message to the server log. Restricted to users with the roomadmin role.",
+          annotations = @Tool.Annotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
+    @RolesAllowed("roomadmin")
+    public String printUser() {
+        String currentUser = httpRequest.getUserPrincipal().getName();
+        return "printUser executed for " + currentUser + ".";
     }
 
     @Tool(description = "Cancel a room booking. Only the user who made the booking or a roomadmin may cancel it.",

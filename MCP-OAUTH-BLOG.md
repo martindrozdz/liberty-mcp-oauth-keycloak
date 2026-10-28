@@ -451,7 +451,9 @@ The decoded access token (see json below) should contain:
 1. use Keycloak logs
 2. use Bobs Debugging "Output" Window
 3. use the curl command mentioned above
-4. use IBM Bob to help you debug ;-)
+4. Press the Reset Auth button (in IBM Bob) to reset authentication (example for a new user)
+5. Restart IBM Bob (sometimes this will show an Authenticate button in the MCP servers list when one was missing)
+6. use IBM Bob to help you debug ;-)
 
 
 ### Letting clients register themselves
