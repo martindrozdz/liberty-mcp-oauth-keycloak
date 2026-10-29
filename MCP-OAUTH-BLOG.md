@@ -10,7 +10,7 @@
 **Our demo**
 
 An AI assistant that can manage your tasks for you is useful.
-An AI assistant that allows anyone to impersonate you and update or delete your tasks without your permission is a liability.
+An AI assistant that lets someone impersonate you, or lets an ordinary user see and change other people's tasks, is a liability. In our demo, only you and an admin can update your tasks, only you and an admin can see them, and only an admin can delete them.
 
 The moment an MCP server authorises a person to perform an action, it should know:
 - who that person is (via a username) and
@@ -23,16 +23,12 @@ This blog explains how a task editor demo that we created does that and covers:
 - how to get IBM Bob (the AI assistant) to trust the Open Liberty MCP Server and Keycloak  
 - Java code demonstrating authorisation decisions
 - the purpose of OAuth in authorisation
-
 ## Open Liberty
 
 The security lives in two files. `server.xml` checks the token, and `web.xml` decides which roles may enter.
 
-<!-- how to setup MCP Server -->
-
-### Adding the required features
-
-To enable security we need to add appSecurity & openidConnectClient-1.0 in the `server.xml`:
+To enable a MCP server on Liberty add the jakartaee-10.0 and mcp-1.0 features &
+to enable security we need to add appSecurity & openidConnectClient-1.0 in the `server.xml`:
 ```xml
 <featureManager>
     <platform>jakartaee-10.0</platform>
@@ -83,8 +79,6 @@ The settings that matter:
 - `userIdentifier`: maps the `preferred_username` claim to the Java principal, which is what `getUserPrincipal().getName()` returns.
 - `inboundPropagation="required"`: Liberty accepts only tokens that the client already holds. It will never start a browser login itself.
 - `protectedResourceMetadata`: publishes metadata telling MCP clients which authorization server and scopes to use. This is what makes the discovery sequence shown later possible.
-
-
 ### Configuring who can access the MCP server
 
 There are two layers of authorisation here:
@@ -109,17 +103,17 @@ There are two layers of authorisation here:
   16      <role-name>taskuser</role-name>
   17  </security-role>
 ```
-Lines 7,8,13,16 tell the MCP server which roles Sam needs to have in his token. 
-If Sam doesn't have either the taskadmin or taskuser role in his access token then he cannot access any of the URLs that he needs on the MCP Server.
+Lines 7,8,13,16 tell the MCP server which roles a user needs to have in his token. 
+If the user doesn't have either the taskadmin or taskuser role in his access token then he cannot access any of the URLs that he needs on the MCP Server.
 
 
 ## The Java
+### Authorisation Pattern 1 - Identity recorded as the task owner
 
-
-### Authorization Pattern 1 - Identity Check
+This pattern records who the caller is, so that later calls can enforce who may see and change the task.
 
 The createTask tool (see java below) injects the HttpServletRequest (jakarta.servlet.http.HttpServletRequest).
-Liberty reads the UserPrincipal.name field from the validated token (see line 14 below) to see which user was authorised to create the task.
+Liberty reads the UserPrincipal.name field from the validated token (see line 14 below) and the tool stores it as the owner of the new task.
 ```java
    1  @ApplicationScoped
    2  public class TaskTools {
@@ -142,29 +136,22 @@ Liberty reads the UserPrincipal.name field from the validated token (see line 14
 ```
 
 `getUserPrincipal().getName()` returns the `preferred_username` claim from the token (as shown in the `server.xml`).
-The task is saved with the authorised user as its owner, namely Sam who created a task through IBM Bob.
 
+The owner is what the other tools enforce against:
+- When the listTasks tool runs, it only returns a task if the caller is its owner or has the taskadmin role (`isAdmin || task.getOwner().equals(currentUser)`). A user only sees his/her tasks, while an admin sees everyone's.
+- When the updateTask tool runs, it applies the same owner-or-admin rule to decide whether the change is allowed (see Pattern 2).
 
-### Authorisation Pattern 2 - Role check
+Without the owner recorded here, neither tool could tell whose tasks they are looking at.
+The owner comes from the validated token and is never taken from a tool argument, so a caller cannot create a task in someone else's name.
 
-The updateTask tool injects the HttpServletRequest (jakarta.servlet.http.HttpServletRequest) and calls `isUserInRole` to ask whether the authenticated user has the necessary role.
-The method runs either way. The code decides what to do with the answer.
+### Authorisation Pattern 2 - Role and Identity check combined
 
-See line 3 below, which extracts the role information into the isAdmin boolean variable.
-```java
-   1      public String updateTask(long id, Task.Status status) {
-              ...
-   2          // Liberty maps the groupIds claim in the token to roles
-   3          boolean isAdmin = httpRequest.isUserInRole("taskadmin");
-              ...
-   4      }
-```
+The updateTask tool combines both checks to decide whether the call is allowed at all, and refuses it if neither holds:
+- line 7 - Identity check: `getUserPrincipal().getName()` says who the caller is, and line 10 compares that name with the task's owner.
+- line 8 - Role check: `isUserInRole` asks whether the caller has the taskadmin role.
 
-### Authorisation Pattern 3 - Role and Identity check combined
-
-The updateTask tool requires two checks:
-- line 7 - Identity check
-- line 8 - Role check
+Line 10 allows the call if either check passes: the caller is the owner, or the caller is an admin.
+The method runs for every authenticated user, and the code decides what to do with the answers.
 ```java
    1      @Tool(description = "Change a task's status")
    2      public String updateTask(
@@ -183,7 +170,7 @@ The updateTask tool requires two checks:
   13      }
 ```
 
-### Authorisation Pattern 4 - Declarative role check with @RolesAllowed
+### Authorisation Pattern 3 - Declarative role check with @RolesAllowed
 
 The deleteTask tool does not check the role in its own code. It is annotated with `@RolesAllowed("taskadmin")` (line 2 below), and Liberty checks the roles in the token before the method is called.
 A user without the taskadmin role is refused with an HTTP 403 and the tool body never executes.
@@ -197,7 +184,7 @@ A user without the taskadmin role is refused with an HTTP 403 and the tool body 
 ```
 
 Use this pattern when a tool is allowed for a role and nobody else, as with delete.
-Use patterns 2 and 3 when the decision depends on more than the role, as with update, where the task owner is also allowed.
+Use pattern 2 when the decision depends on more than the role, as with update, where the task owner is also allowed.
 
 
 ## Keycloak
@@ -494,7 +481,7 @@ https.get('https://localhost:9443/my-app/mcp', (res) => {
 
 Once connected to the MCP server in IBM Bob, use chat window to try:
 
-- *List all the tasks.*
+- *List my tasks.* (`taskadmin` sees every user's tasks)
 - *Create a task called "Write docs" and mark it as in progress.*
 - *Delete task 3.* (`taskadmin` only)
 - *Run printUser.* (`taskadmin` only) Replies with `printUser executed for testadmin.`, confirming which identity Liberty extracted from the token.
@@ -507,7 +494,7 @@ For example, as `testadmin`:
 
 Task data is held in memory only, so restarting the server clears everything you create here.
 
-To see the role checks working, log in as `testuser` and create a task. `testuser` can change the status of their own tasks but not anyone else's, and cannot delete tasks. Then connect as `testadmin`: the admin can update any task and delete tasks.
+To see the role checks working, log in as `testuser` and create a task. `testuser` only sees their own tasks, can change the status of their own tasks but not anyone else's, and cannot delete tasks. Then connect as `testadmin`: the admin sees everyone's tasks, can update any task and can delete tasks.
 
 
 ## Running this in production 
@@ -537,13 +524,13 @@ Some are restrictive, like a taskuser which can only update tasks of their own.
 
 **High-level flow:**
 
-The Keycloak admin securely stores a password for a user (Sam).
-Open Liberty is setup to use Keycloak to allow Sam to do things on its MCP Server.
-When the AI assistant tries to perform an action on behalf of Sam then:
-- Keycloak first asks Sam for a password (covered in more detail later) and
+The Keycloak admin securely stores a password for a user.
+Open Liberty is setup to use Keycloak to allow users to do things on its MCP Server.
+When the AI assistant tries to perform an action on behalf of users then:
+- Keycloak first asks users for a password (covered in more detail later) and
 - if the password is correct then
-- Keycloak issues a token with permissions for the roles that the Sam is configured with.
-- Sam uses this token to perform only authorised actions on the MCP server 
+- Keycloak issues a token with permissions for the roles that the user is configured with.
+- Users uses this token to perform only authorised actions on the MCP server 
 - The MCP server is the "_audience_" that the token is valid.
 
 The AI Assitant (IBM Bob) only knows of the MCP server URL. 

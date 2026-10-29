@@ -1,7 +1,5 @@
 package com.example.tasks;
 
-import java.util.stream.Collectors;
-
 import org.mcpjava.server.tools.Tool;
 import org.mcpjava.server.tools.ToolArg;
 
@@ -30,11 +28,18 @@ public class TaskTools {
         return "Created task " + task.getId() + " \"" + task.getTitle() + "\" for " + owner + ".";
     }
 
-    @Tool(description = "List all tasks")
+    @Tool(description = "List your tasks (admins see all tasks)")
     public String listTasks() {
-        return taskService.list().stream()
-                .map(task -> task.getId() + ". " + task.getTitle() + " [" + task.getStatus() + "] (owner: " + task.getOwner() + ")")
-                .collect(Collectors.joining("\n", "Tasks:\n", ""));
+        String currentUser = httpRequest.getUserPrincipal().getName();
+        boolean isAdmin = httpRequest.isUserInRole("taskadmin");
+
+        String result = "Tasks:";
+        for (Task task : taskService.list()) {
+            if (isAdmin || task.getOwner().equals(currentUser)) {
+                result += "\n" + task.getId() + ". " + task.getTitle() + " [" + task.getStatus() + "] (owner: " + task.getOwner() + ")";
+            }
+        }
+        return result;
     }
 
     @Tool(description = "Change a task's status")
@@ -66,12 +71,5 @@ public class TaskTools {
             throw new ToolCallException("No task found with id " + id + ".");
         }
         return "Task " + id + " has been deleted.";
-    }
-
-    @Tool(description = "Show the current user (admin only)")
-    @RolesAllowed("taskadmin")
-    public String printUser() {
-        String currentUser = httpRequest.getUserPrincipal().getName();
-        return "printUser executed for " + currentUser + ".";
     }
 }
