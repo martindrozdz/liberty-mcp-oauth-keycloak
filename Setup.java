@@ -25,9 +25,6 @@ import java.util.*;
 public class Setup {
 
     private static final String  OS_NAME    = System.getProperty("os.name").toLowerCase();
-    private static final boolean IS_WINDOWS = OS_NAME.contains("win");
-    private static final boolean IS_MAC     = OS_NAME.contains("mac");
-    private static final boolean IS_LINUX   = OS_NAME.contains("linux") || OS_NAME.contains("nix") || OS_NAME.contains("nux");
     private static final Path    WORK_DIR   = Path.of(".");
 
     public static void main(String... args) throws Exception {
@@ -101,8 +98,17 @@ public class Setup {
         Files.copy(p12, keycloakDir.resolve("localhost.p12"), StandardCopyOption.REPLACE_EXISTING);
 
         // ── 5. Import certificate into OS trust store ─────────────────────────
+        // Bob (Electron/Chromium) requires the cert in the login keychain with -p ssl.
+        // The System keychain alone is silently ignored by Chromium/Node.js.
         System.out.println("[5/7] Importing certificate into OS trust store...");
-        importCertIntoTrustStore(keytool, crt);
+        String loginKeychain = System.getProperty("user.home") + "/Library/Keychains/login.keychain-db";
+        boolean inSystem = isCertInKeychain(keytool, crt, "/Library/Keychains/System.keychain");
+        boolean inLogin  = isCertInKeychain(keytool, crt, loginKeychain);
+        if (inSystem && inLogin) {
+            System.out.println("      Certificate already in System and login keychains — skipping");
+        } else {
+            importCertIntoTrustStore(keytool, crt, loginKeychain, inSystem, inLogin);
+        }
 
         // ── 6. Start Keycloak container ───────────────────────────────────────
         System.out.println("[6/7] Starting Keycloak container...");
@@ -121,7 +127,7 @@ public class Setup {
 
     /** Runs a JBang script, streaming output to stdout. Fails fast on non-zero exit. */
     private static void runJBang(String scriptPath) throws Exception {
-        String jbang = IS_WINDOWS ? "jbang.cmd" : "jbang";
+        String jbang = "jbang";
         int exit = runCommand(List.of(jbang, scriptPath), false);
         if (exit != 0) {
             System.err.println("Script failed: " + scriptPath);
@@ -145,54 +151,42 @@ public class Setup {
     }
 
     /**
-     * Imports localhost.crt into the OS trust store.
-     * Checks first (by fingerprint on macOS/Windows, by file presence on Linux) and removes
-     * any existing entry before adding the new cert, ensuring a clean single entry.
+     * Returns true if the certificate's SHA-1 fingerprint is already present
+     * in the given keychain file.
      */
-    private static void importCertIntoTrustStore(String keytool, Path crt) throws Exception {
-        if (IS_MAC) {
-            importCertMac(keytool, crt);
-        } else if (IS_LINUX) {
-            importCertLinux(crt);
-        } else if (IS_WINDOWS) {
-            importCertWindows(crt);
-        } else {
-            System.out.println("      Unrecognised OS — please import localhost.crt into your OS trust store manually.");
-            System.out.println("      See the 'Import the Certificate into your OS trust store' section in README.md.");
-        }
-    }
-
-    /**
-     * macOS: uses the security(1) command.
-     * Detects the existing cert by SHA-1 fingerprint; removes it before adding the new one.
-     */
-    private static void importCertMac(String keytool, Path crt) throws Exception {
+    private static boolean isCertInKeychain(String keytool, Path crt, String keychain) throws Exception {
         String fingerprint = getCertFingerprint(keytool, crt);
-
-        // Check whether this exact fingerprint is already trusted
         Process findProc = new ProcessBuilder(
-                "security", "find-certificate", "-a", "-Z",
-                "/Library/Keychains/System.keychain")
+                "security", "find-certificate", "-a", "-Z", keychain)
                 .redirectErrorStream(true).start();
         String keychainOutput = new String(findProc.getInputStream().readAllBytes());
         findProc.waitFor();
-
-        // Normalise both sides to uppercase hex without separators for comparison
         String normFingerprint = fingerprint.replace(":", "").replace(" ", "").toUpperCase();
-        boolean alreadyTrusted = keychainOutput.toUpperCase()
-                .replaceAll("[:\\s]", "").contains(normFingerprint);
+        return keychainOutput.toUpperCase().replaceAll("[:\\s]", "").contains(normFingerprint);
+    }
 
-        if (alreadyTrusted) {
-            System.out.println("      Existing localhost cert found in System keychain — removing it first...");
-            runCommand(List.of("sudo", "security", "remove-trusted-cert", "-d", crt.toString()), true);
+    /**
+     * Imports localhost.crt into the macOS System keychain (sudo) and the
+     * login keychain with -p ssl (no sudo) so that Chromium/Bob trusts it.
+     */
+    private static void importCertIntoTrustStore(String keytool, Path crt,
+            String loginKeychain, boolean inSystem, boolean inLogin) throws Exception {
+        if (!inSystem) {
+            System.out.println("      Adding certificate to System keychain (sudo required)...");
+            runCommand(List.of(
+                    "sudo", "security", "add-trusted-cert",
+                    "-d", "-r", "trustRoot", "-p", "ssl",
+                    "-k", "/Library/Keychains/System.keychain",
+                    crt.toString()), true);
         }
-
-        System.out.println("      Adding certificate to System keychain (sudo required)...");
-        runCommand(List.of(
-                "sudo", "security", "add-trusted-cert",
-                "-d", "-r", "trustRoot",
-                "-k", "/Library/Keychains/System.keychain",
-                crt.toString()), true);
+        if (!inLogin) {
+            System.out.println("      Adding certificate to login keychain (for Bob/Chromium)...");
+            runCommand(List.of(
+                    "security", "add-trusted-cert",
+                    "-r", "trustRoot", "-p", "ssl",
+                    "-k", loginKeychain,
+                    crt.toString()), true);
+        }
         System.out.println("      Certificate imported. Restart Bob/browsers after setup completes.");
     }
 
@@ -212,79 +206,6 @@ public class Setup {
             }
         }
         throw new RuntimeException("Could not extract SHA-1 fingerprint from " + crt + "\nkeytool output:\n" + output);
-    }
-
-    /**
-     * Linux: reads /etc/os-release to determine the distro family, then uses the
-     * appropriate trust-store commands (RHEL/Fedora or Debian/Ubuntu).
-     * Removes any existing cert file at the destination before copying the new one.
-     */
-    private static void importCertLinux(Path crt) throws Exception {
-        String osRelease = "";
-        Path osReleasePath = Path.of("/etc/os-release");
-        if (Files.exists(osReleasePath)) {
-            osRelease = Files.readString(osReleasePath).toLowerCase();
-        }
-
-        boolean isRhel = osRelease.contains("fedora") || osRelease.contains("rhel")
-                || osRelease.contains("centos") || osRelease.contains("rocky")
-                || osRelease.contains("almalinux");
-        boolean isDebian = osRelease.contains("debian") || osRelease.contains("ubuntu");
-
-        if (isRhel) {
-            Path dest = Path.of("/etc/pki/ca-trust/source/anchors/localhost.crt");
-            System.out.println("      Detected RHEL/Fedora family (sudo required)...");
-            if (Files.exists(dest)) {
-                System.out.println("      Removing existing cert at " + dest + "...");
-                runCommand(List.of("sudo", "rm", dest.toString()), true);
-            }
-            runCommand(List.of("sudo", "cp", crt.toString(), dest.toString()), true);
-            runCommand(List.of("sudo", "update-ca-trust"), true);
-            System.out.println("      Certificate imported.");
-        } else if (isDebian) {
-            Path dest = Path.of("/usr/local/share/ca-certificates/localhost.crt");
-            System.out.println("      Detected Debian/Ubuntu family (sudo required)...");
-            if (Files.exists(dest)) {
-                System.out.println("      Removing existing cert at " + dest + "...");
-                runCommand(List.of("sudo", "rm", dest.toString()), true);
-            }
-            runCommand(List.of("sudo", "cp", crt.toString(), dest.toString()), true);
-            runCommand(List.of("sudo", "update-ca-certificates"), true);
-            System.out.println("      Certificate imported.");
-        } else {
-            System.out.println("      Unknown Linux distro — please import localhost.crt into your OS trust store manually.");
-            System.out.println("      See the 'Import the Certificate into your OS trust store' section in README.md.");
-        }
-    }
-
-    /**
-     * Windows: uses PowerShell's certificate cmdlets.
-     * Removes any existing CN=localhost entry from LocalMachine\Root before adding the new one.
-     */
-    private static void importCertWindows(Path crt) throws Exception {
-        System.out.println("      Checking for existing localhost cert in LocalMachine\\Root...");
-
-        // Check if a CN=localhost cert already exists
-        int checkExit = runCommand(List.of(
-                "powershell.exe", "-NoProfile", "-Command",
-                "if (Get-ChildItem Cert:\\LocalMachine\\Root | " +
-                "Where-Object { $_.Subject -like '*CN=localhost*' }) { exit 0 } else { exit 1 }"),
-                false);
-
-        if (checkExit == 0) {
-            System.out.println("      Existing localhost cert found — removing it first...");
-            runCommand(List.of(
-                    "powershell.exe", "-NoProfile", "-Command",
-                    "Get-ChildItem Cert:\\LocalMachine\\Root | " +
-                    "Where-Object { $_.Subject -like '*CN=localhost*' } | Remove-Item"), true);
-        }
-
-        System.out.println("      Importing certificate into LocalMachine\\Root (elevation may be required)...");
-        runCommand(List.of(
-                "powershell.exe", "-NoProfile", "-Command",
-                "Import-Certificate -FilePath '" + crt.toAbsolutePath() + "' " +
-                "-CertStoreLocation Cert:\\LocalMachine\\Root"), true);
-        System.out.println("      Certificate imported. Restart browsers/Bob after setup completes.");
     }
 
     /**
@@ -317,7 +238,7 @@ public class Setup {
     /** Checks whether a command exists on the PATH without executing it. */
     private static boolean commandExists(String command) {
         try {
-            List<String> cmd = IS_WINDOWS ? List.of("where", command) : List.of("which", command);
+            List<String> cmd = List.of("which", command);
             Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
             p.getInputStream().transferTo(OutputStream.nullOutputStream());
             return p.waitFor() == 0;
