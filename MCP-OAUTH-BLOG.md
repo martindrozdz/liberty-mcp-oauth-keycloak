@@ -2,15 +2,14 @@
 
 **OAuth & keycloak**
 
-* OAuth is part of the [MCP spec](https://modelcontextprotocol.io/docs/2025-11-25/getting-started/intro), so MCP (Model Context Protocol) clients support logging in with OAuth.
-* MCP requires that OAuth is used for authorization.
-* To demonstrate OAuth, we need an authorization server that supports all of the OAuth features that MCP requires.
-* For this demo we've picked Keycloak because it's free and supports everything we need.
+ OAuth is part of the [MCP spec](https://modelcontextprotocol.io/docs/2025-11-25/getting-started/intro). MCP (Model Context Protocol) clients support logging in with OAuth.
+MCP requires that OAuth is used for authorization. To demonstrate OAuth, we need an authorization server that supports all of the OAuth features that MCP requires.
+
+For this demo we've picked Keycloak because it's free and supports everything we need.
 
 **Our demo**
 
-An AI assistant that can manage your tasks for you is useful.
-An AI assistant that lets someone impersonate you, or lets an ordinary user see and change other people's tasks, is a liability. In our demo, only you and an admin can update your tasks, only you and an admin can see them, and only an admin can delete them.
+An AI assistant that can manage your tasks for you is useful. An AI assistant that lets someone impersonate you, or lets an ordinary user see and change other people's tasks, is a liability. In our demo, only you and an admin can update your tasks, only you and an admin can see them, and only an admin can delete them.
 
 The moment an MCP server authorises a person to perform an action, it should know:
 - who that person is (via a username) and
@@ -25,8 +24,6 @@ This blog explains how a task editor demo that we created does that and covers:
 - the purpose of OAuth in authorisation
 ## Open Liberty
 
-The security lives in two files. `server.xml` checks the token, and `web.xml` decides which roles may enter.
-
 To enable a MCP server on Liberty add the jakartaee-10.0 and mcp-1.0 features &
 to enable security we need to add appSecurity & openidConnectClient-1.0 in the `server.xml`:
 ```xml
@@ -40,10 +37,9 @@ to enable security we need to add appSecurity & openidConnectClient-1.0 in the `
 
 ### Configuring liberty to accept OAuth access tokens
 
-Open Liberty (in this example) is not configured to log users in or issue tokens itself.
-Keycloak does that.
+Open Liberty (in this example) is not configured to log users in or issue access tokens itself. Keycloak does that.
 
-The `openidConnectClient` element configures Liberty so that:
+The `openidConnectClient` element in the `server.xml` configures Liberty so that:
 - Liberty knows where to find Keycloak and
 - Liberty knows which access tokens to accept and
 - Liberty knows which claims are important to get roles for a user (in this case the roles are stored in the mcp-demo-server claim).
@@ -108,12 +104,9 @@ If the user doesn't have either the taskadmin or taskuser role in his access tok
 
 
 ## The Java
-### Authorisation Pattern 1 - Identity recorded as the task owner
+### Authorisation Pattern 1 - Identity preservation
 
-This pattern records who the caller is, so that later calls can enforce who may see and change the task.
-
-The createTask tool (see java below) injects the HttpServletRequest (jakarta.servlet.http.HttpServletRequest).
-Liberty reads the UserPrincipal.name field from the validated token (see line 14 below) and the tool stores it as the owner of the new task.
+This pattern records the task owner so that only authorised users can access it. Liberty reads the UserPrincipal.name field from the validated token (see line 14 below) and the tool stores it as the owner of the new task.
 ```java
    1  @ApplicationScoped
    2  public class TaskTools {
@@ -137,8 +130,8 @@ Liberty reads the UserPrincipal.name field from the validated token (see line 14
 
 `getUserPrincipal().getName()` returns the `preferred_username` claim from the token (as shown in the `server.xml`).
 
-The owner is what the other tools enforce against:
-- When the listTasks tool runs, it only returns a task if the caller is its owner or has the taskadmin role (`isAdmin || task.getOwner().equals(currentUser)`). A user only sees his/her tasks, while an admin sees everyone's.
+Where this owner field gets run for identity checks:
+- the listTasks tool only returns tasks if the caller is its owner or has the taskadmin role. A user only sees his/her tasks, while an admin sees everyone's.
 - When the updateTask tool runs, it applies the same owner-or-admin rule to decide whether the change is allowed (see Pattern 2).
 
 Without the owner recorded here, neither tool could tell whose tasks they are looking at.
@@ -172,8 +165,8 @@ The method runs for every authenticated user, and the code decides what to do wi
 
 ### Authorisation Pattern 3 - Declarative role check with @RolesAllowed
 
-The deleteTask tool does not check the role in its own code. It is annotated with `@RolesAllowed("taskadmin")` (line 2 below), and Liberty checks the roles in the token before the method is called.
-A user without the taskadmin role is refused with an HTTP 403 and the tool body never executes.
+The deleteTask tool does not check the role in its own code. With `@RolesAllowed("taskadmin")` (line 2 below) Liberty compares the roles in the token before the method is even called.
+A user without the taskadmin role is refused with a HTTP 403 resoponse and the tool body never executes.
 ```java
    1      @Tool(description = "Delete a task (admin only)")
    2      @RolesAllowed("taskadmin")
@@ -183,9 +176,7 @@ A user without the taskadmin role is refused with an HTTP 403 and the tool body 
    5      }
 ```
 
-Use this pattern when a tool is allowed for a role and nobody else, as with delete.
-Use pattern 2 when the decision depends on more than the role, as with update, where the task owner is also allowed.
-
+Use this pattern when a tool is allowed for a role and nobody else, as with delete. Use pattern 2 when the decision depends on more than the role, as with update, where the task owner is also allowed.
 
 ## Keycloak
 
@@ -225,8 +216,7 @@ This will download and run the keycloack image.
 - Keycloak Admin is reachable at `https://localhost:8443/admin`. It uses a self-signed certificate, so accept the browser warning.
 - You can log in to the **master** realm as `admin` with password `admin`.
 
-The included [SetupLocalKeycloak.java](./SetupLocalKeycloak.java) JBang script performs the steps included below.
-It uses the Keycloak Admin REST API so Keycloak and was tested on Mac OS. Please see https://www.jbang.dev/ for setup instructions.
+The included [SetupLocalKeycloak.java](./SetupLocalKeycloak.java) JBang script performs the steps included below. It uses the Keycloak Admin REST API so Keycloak and was tested on Mac OS. Please see https://www.jbang.dev/ for setup instructions.
 
 ### Create the realm
 
@@ -344,7 +334,7 @@ For each user:
 
 ### Verify the access token
 
-Request a token with the password grant and decode the access token at jwt.io:
+Once the above script has run you can test it with this curl commmand below to request a token with the password grant and decode the access token at jwt.io:
 ```bash
 curl -k -s -X POST \
   https://localhost:8443/realms/liberty-demo/protocol/openid-connect/token \
@@ -362,10 +352,10 @@ The decoded access token (see json below) should contain:
   This should match openidConnectClient.audiences in the liberty `server.xml` otherwise Open Liberty will reject it. 
   
   • Line 36: scope includes mcp-demo-server
-  This scope maps the Keycloak realm roles into groupIds
+  This scope maps the Keycloak realm roles into groupIds (should match advertised scopes in the liberty `server.xml`)
   
   • Lines 38–43: groupIds is a non-empty array containing taskadmin
-  Open liberty only reads roles from groupIds. Open Libertie's web.xml must contain taskadmin, otherwise the MCP tools will not be called.
+  Open liberty only reads roles from groupIds. Open Liberty's web.xml must contain taskadmin, otherwise the MCP tools will not be called.
   
   • Line 45: preferred_username is testadmin 
   Open liberty uses this for for getUserPrincipal().getName()
