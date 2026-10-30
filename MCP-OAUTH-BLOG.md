@@ -216,7 +216,7 @@ This will download and run the keycloack image.
 - Keycloak Admin is reachable at `https://localhost:8443/admin`. It uses a self-signed certificate, so accept the browser warning.
 - You can log in to the **master** realm as `admin` with password `admin`.
 
-The included [SetupLocalKeycloak.java](./SetupLocalKeycloak.java) JBang script performs the steps included below. It uses the Keycloak Admin REST API so Keycloak and was tested on Mac OS. Please see https://www.jbang.dev/ for setup instructions.
+The included [SetupLocalKeycloak.java](SetupLocalKeycloak.java) JBang script performs the steps included below. It uses the Keycloak Admin REST API so Keycloak and was tested on Mac OS. Please see https://www.jbang.dev/ for setup instructions.
 
 ### Create the realm
 
@@ -414,17 +414,22 @@ The decoded access token (see json below) should contain:
 ### Debugging
 
 1. use Keycloak logs
-2. use Bobs Debugging "Output" Window
+2. use Open liberty logs
 3. use the curl command mentioned above
 4. press the Reset Auth button (in IBM Bob) to reset authentication for a new user
 
-The order of steps is important
-1. Close your browser and Bob (for new certifcated to be picked up).
-2. Run the Setup.java script
+**Important note on restarting applications after certificate changes:**
+- **IBM Bob**: On Mac OS IBM Bob does **not** need to be restarted as `NODE_EXTRA_CA_CERTS` is set via `launchctl setenv`.
+- **Open Liberty (`liberty:dev`)**: **Must be restarted** (`Ctrl+C` and `./mvnw liberty:dev`) if it was already running when certificates were generated, so that it reloads the new keystore from disk into memory.
+- **Firefox**: **Must be restarted** because Firefox maintains its own independent certificate store and TLS session cache, unlike Safari and Chrome which automatically query the macOS System Keychain.
+
+The order of steps is important:
+1. Close your browser and Bob (for new certificates to be picked up).
+2. Run the `Setup.java` script
 3. Ensure that keycloak is running
 4. In a new terminal start up Liberty
 5. Start up IBM Bob find the task-server in Settings->MCP servers
-6. Click the `Authenticate` button (if `Authenticate` is not present hover over the error exclamation mark icon for a more deatiled description of the problem)
+6. Click the `Authenticate` button (if `Authenticate` is not present hover over the error exclamation mark icon for a more detailed description of the problem)
 7. If you see "An error occurred, please login again through your application." then close the window and try `Authenticate` again. This should work.
 
 
@@ -436,44 +441,17 @@ Because clients register at runtime, Keycloak's *client registration policies* h
 - **Trusted Hosts**: the policy is deleted. It restricts registration to listed hosts, and keeping it means matching those hosts to the container runtime's networking. This is safe here only because Keycloak is bound to the loopback address. Anything reachable from a network should keep this policy and list its hosts.
 - **Allowed Client Scopes**: `mcp-demo-server`, `profile`, `offline_access` are added so that registered clients may use them. A client asking for a scope outside this list is refused. The first three are what the demo needs. `offline_access` is there as a convenience, so that a client which asks for it is not refused.
 
-
 ##  IBM Bob Certificates
 
-Since we're doing a local demo with self-signed certificates, we need to tell IBM Bob to trust the certificates for both Keycloak and the Liberty server. 
-The certificates must be provided via the `NODE_EXTRA_CA_CERTS` environment variable, which every Node.js process respects automatically.
+IBM Bob runs on Node.js. Node.js ships with its own bundled CA list (Mozilla's) and doesn't consult the macOS Keychain. Safari and Chrome use the OS trust store. 
+Node only extends its list through NODE_EXTRA_CA_CERTS.
 
-The fix for Windows is as follows:
-Create a combined PEM bundle and set the variable permanently for your Windows user:
-```bash
-# Combine both certs into one bundle file
-$liberty  = Get-Content "$CERTS_DIR\liberty-localhost.cer"
-$keycloak = Get-Content "$CERTS_DIR\keycloak-localhost.cer"
-($liberty + $keycloak) | Set-Content "$CERTS_DIR\local-ca-bundle.cer"
+  This is why the project needs both on mac OS:
+  • the Keychain entry, so browsers trust the cert;
+  • NODE_EXTRA_CA_CERTS, so Node/Electron (Bob) trusts it.
 
-# Set permanently in your Windows user environment
-[System.Environment]::SetEnvironmentVariable(
-  "NODE_EXTRA_CA_CERTS",
-  "$CERTS_DIR\local-ca-bundle.cer",
-  "User"
-)
-```
-
-**Fully restart Bob** (quit and relaunch) after setting this. The variable is only inherited\
-by processes started after it is set.
-
-Verify it is working before connecting Bob:
-
-```bash
-$env:NODE_EXTRA_CA_CERTS = "$CERTS_DIR\local-ca-bundle.cer"
-node -e "
-const https = require('https');
-https.get('https://localhost:9443/my-app/mcp', (res) => {
-  console.log('Status:', res.statusCode);
-  console.log('WWW-Authenticate:', res.headers['www-authenticate']);
-}).on('error', (e) => { console.log('Error:', e.message); });
-"
-# Expected: Status: 401 and a WWW-Authenticate header containing resource_metadata=
-```
+The correct way to configure NODE_EXTRA_CA_CERTS for GUI apps on macOS is to:
+Write to `~/.config/environment.plist` and call `launchctl setenv NODE_EXTRA_CA_CERTS <path-to-certificate>`
 
 ## What it looks like in use
 

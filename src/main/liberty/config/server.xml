@@ -28,10 +28,10 @@
     </webApplication>
 
     <logging traceSpecification="MCP=all:com.ibm.ws.security.openidconnect*=all:io.openliberty.security.oidcclient.wellknown*=all:com.ibm.ws.security.oauth*=all"/>
-    <!-- TLS/SSL defaults (Liberty generates a dev certificate automatically) -->
+    <!-- TLS/SSL defaults -->
     <ssl id="defaultSSLConfig" trustDefaultCerts="true" />
 
-    <keyStore id="defaultKeyStore" password="${keystore_password}" location="localhost.p12"/>
+    <keyStore id="defaultKeyStore" password="${keystore_password}" location="resources/security/localhost.p12"/>
 
     <openidConnectClient
         id="mcp-oidc-config"

@@ -33,7 +33,8 @@ public class Setup {
         System.out.println("Open Liberty MCP Demo - Full Local Setup (cross-platform)");
         System.out.println("========================================================================");
 
-        boolean clean = Arrays.asList(args).contains("--clean") || Arrays.asList(args).contains("-c");
+        // Clean is the default; pass --no-clean to keep existing certificates.
+        boolean clean = !Arrays.asList(args).contains("--no-clean");
 
         // ── 1. Create .env if missing ─────────────────────────────────────────
         Path envFile = Path.of(".env");
@@ -64,6 +65,8 @@ public class Setup {
             Files.deleteIfExists(p12);
             Files.deleteIfExists(serverCsr);
             Files.deleteIfExists(serverSignedCrt);
+            removeCertFromKeychain("Local Open Liberty MCP Root CA");
+            removeCertFromKeychain("localhost");
         }
 
         // ── 2. Generate Local Root CA ─────────────────────────────────────────
@@ -170,6 +173,7 @@ public class Setup {
         Path libertyDir = Path.of("src/main/liberty/config/resources/security");
         Files.createDirectories(libertyDir);
         Files.copy(p12, libertyDir.resolve("localhost.p12"), StandardCopyOption.REPLACE_EXISTING);
+        Files.copy(p12, Path.of("src/main/liberty/config/localhost.p12"), StandardCopyOption.REPLACE_EXISTING);
 
         Path keycloakDir = Path.of("src/main/keycloak");
         Files.createDirectories(keycloakDir);
@@ -177,12 +181,11 @@ public class Setup {
 
         // ── 5. Import Root CA into OS trust store & configure Node.js ─────────
         System.out.println("[5/7] Importing Root CA into OS trust store...");
-        String loginKeychain = System.getProperty("user.home") + "/Library/Keychains/login.keychain-db";
         boolean inSystem = isCertInKeychain(keytool, caCrt, "/Library/Keychains/System.keychain");
         if (inSystem) {
             System.out.println("      Root CA already in System keychain — skipping");
         } else {
-            importCertIntoTrustStore(keytool, caCrt, loginKeychain, inSystem, true);
+            importCertIntoTrustStore(caCrt);
         }
         configureNodeExtraCaCerts(caCrt);
 
@@ -237,7 +240,6 @@ public class Setup {
      */
     private static boolean isCertInKeychain(String keytool, Path crt, String keychain) throws Exception {
         String fingerprint = getCertFingerprint(keytool, crt);
-        System.out.println(">>> RUNNING COMMAND: security find-certificate -a -Z " + keychain);
         Process findProc = new ProcessBuilder(
                 "security", "find-certificate", "-a", "-Z", keychain)
                 .redirectErrorStream(true).start();
@@ -248,25 +250,38 @@ public class Setup {
     }
 
     /**
-     * Imports localhost.crt into the macOS System keychain (sudo) and the
-     * login keychain with -p ssl (no sudo) so that Chromium/Bob trusts it.
+     * Deletes existing certificates matching commonName from macOS System Keychain.
      */
-    private static void importCertIntoTrustStore(String keytool, Path crt,
-            String loginKeychain, boolean inSystem, boolean inLogin) throws Exception {
-        if (!inSystem) {
-            System.out.println("      Adding certificate to System keychain (sudo required)...");
-            runCommand(List.of(
-                    "sudo", "security", "add-trusted-cert",
-                    "-d", "-r", "trustRoot", "-p", "ssl",
-                    "-k", "/Library/Keychains/System.keychain",
-                    crt.toString()), true);
-        }
-        System.out.println("      Certificate imported. Restart Bob/browsers after setup completes.");
+    private static void removeCertFromKeychain(String commonName) {
+        if (!OS_NAME.contains("mac") && !OS_NAME.contains("darwin")) return;
+        try {
+            Process findProc = new ProcessBuilder(
+                    "security", "find-certificate", "-c", commonName, "/Library/Keychains/System.keychain")
+                    .redirectErrorStream(true).start();
+            if (findProc.waitFor() == 0) {
+                System.out.println("      Removing existing '" + commonName + "' from System Keychain (sudo required)...");
+                runCommand(List.of("sudo", "security", "delete-certificate",
+                        "-c", commonName, "/Library/Keychains/System.keychain"), false);
+            }
+        } catch (Exception ignored) {}
     }
 
     /**
-     * Configures NODE_EXTRA_CA_CERTS in macOS user environment (environment.plist)
-     * and sets it via launchctl for Node.js / Bob IDE.
+     * Imports Root CA certificate into the macOS System keychain with root trust.
+     */
+    private static void importCertIntoTrustStore(Path crt) throws Exception {
+        System.out.println("      Adding Root CA to System keychain (sudo required)...");
+        runCommand(List.of(
+                "sudo", "security", "add-trusted-cert",
+                "-d", "-r", "trustRoot", "-p", "ssl", "-p", "basic",
+                "-k", "/Library/Keychains/System.keychain",
+                crt.toString()), true);
+        System.out.println("      Root CA imported. Restart Bob/browsers after setup completes.");
+    }
+
+    /**
+     * Configures NODE_EXTRA_CA_CERTS in macOS user environment (~/.config/environment.plist)
+     * and sets it via launchctl for immediate and reboot-persistent trust in Node.js / Bob IDE.
      */
     private static void configureNodeExtraCaCerts(Path crt) throws Exception {
         if (!OS_NAME.contains("mac") && !OS_NAME.contains("darwin")) return;
@@ -307,7 +322,7 @@ public class Setup {
         }
 
         runCommand(List.of("launchctl", "setenv", "NODE_EXTRA_CA_CERTS", absoluteCrtPath), false);
-        System.out.println("      NODE_EXTRA_CA_CERTS configured for Node.js/Bob IDE (" + absoluteCrtPath + ")");
+        System.out.println("      NODE_EXTRA_CA_CERTS configured in environment.plist & launchctl (" + absoluteCrtPath + ")");
     }
 
     /**
@@ -315,7 +330,6 @@ public class Setup {
      * Returns a string like "AB:CD:EF:..." (uppercase, colon-separated).
      */
     private static String getCertFingerprint(String keytool, Path crt) throws Exception {
-        System.out.println(">>> RUNNING COMMAND: " + keytool + " -printcert -file " + crt);
         Process proc = new ProcessBuilder(keytool, "-printcert", "-file", crt.toString())
                 .redirectErrorStream(true).start();
         String output = new String(proc.getInputStream().readAllBytes());
@@ -402,7 +416,6 @@ public class Setup {
      * If failFast is true, exits immediately on non-zero exit code.
      */
     private static int runCommand(List<String> cmd, boolean failFast) throws Exception {
-        System.out.println(">>> RUNNING COMMAND: " + String.join(" ", cmd));
         ProcessBuilder pb = new ProcessBuilder(cmd)
                 .directory(WORK_DIR.toFile())
                 .redirectOutput(Redirect.INHERIT)

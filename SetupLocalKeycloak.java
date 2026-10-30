@@ -1,6 +1,7 @@
 ///usr/bin/env jbang "$0" "$@" ; exit $?
 //DEPS org.glassfish:jakarta.json:2.0.1
 
+import java.io.IOException;
 import java.io.StringReader;
 import java.net.URI;
 import java.net.http.*;
@@ -15,6 +16,7 @@ import jakarta.json.*;
 
 public class SetupLocalKeycloak {
 
+    private static final String KEYCLOAK_URL = "https://localhost:8443";
     private static HttpClient client;
     private static String adminToken;
 
@@ -38,12 +40,12 @@ public class SetupLocalKeycloak {
             .build();
 
         // 2. Wait for Keycloak to become ready
-        System.out.println("[1/8] Waiting for Keycloak on https://localhost:8443...");
+        System.out.println("[1/8] Waiting for Keycloak on " + KEYCLOAK_URL + "...");
         boolean keycloakReady = false;
         for (int i = 0; i < 30; i++) {
             try {
                 HttpRequest probe = HttpRequest.newBuilder()
-                    .uri(URI.create("https://localhost:8443/realms/master"))
+                    .uri(URI.create(KEYCLOAK_URL + "/realms/master"))
                     .timeout(Duration.ofSeconds(5))
                     .GET().build();
                 if (client.send(probe, BodyHandlers.discarding()).statusCode() < 500) {
@@ -62,24 +64,14 @@ public class SetupLocalKeycloak {
         System.out.println("\nKeycloak is up and responding.");
 
         // 3. Read .env file
-        Map<String, String> env = new HashMap<>();
-        if (Files.exists(Path.of(".env"))) {
-            for (String line : Files.readAllLines(Path.of(".env"))) {
-                line = line.trim();
-                if (!line.isEmpty() && !line.startsWith("#") && line.contains("=")) {
-                    String[] parts = line.split("=", 2);
-                    env.put(parts[0].trim(), parts[1].trim());
-                }
-            }
-        }
-        String adminPassword    = env.getOrDefault("keycloak_admin_password", "admin");
-        String keystorePassword = env.getOrDefault("keystore_password",       "secretpassword123");
+        String adminPassword    = readEnv("keycloak_admin_password", "admin");
+        String keystorePassword = readEnv("keystore_password",       "secretpassword123");
 
         // 4. Acquire admin token
         String tokenBody = "client_id=admin-cli&username=admin&password=" + adminPassword + "&grant_type=password";
         HttpResponse<String> tokenResp = client.send(
             HttpRequest.newBuilder()
-                .uri(URI.create("https://localhost:8443/realms/master/protocol/openid-connect/token"))
+                .uri(URI.create(KEYCLOAK_URL + "/realms/master/protocol/openid-connect/token"))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(BodyPublishers.ofString(tokenBody))
                 .build(),
@@ -364,18 +356,34 @@ public class SetupLocalKeycloak {
             .findFirst().orElse(null);
     }
 
+    // ── Environment helper ────────────────────────────────────────────────────
+
+    private static String readEnv(String key, String defaultValue) throws IOException {
+        Path envFile = Path.of(".env");
+        if (Files.exists(envFile)) {
+            for (String line : Files.readAllLines(envFile)) {
+                line = line.trim();
+                if (!line.isEmpty() && !line.startsWith("#") && line.contains("=")) {
+                    String[] parts = line.split("=", 2);
+                    if (parts[0].trim().equals(key)) return parts[1].trim();
+                }
+            }
+        }
+        return defaultValue;
+    }
+
     // ── HTTP helpers ──────────────────────────────────────────────────────────
 
     private static HttpResponse<String> apiGet(String path) throws Exception {
         return client.send(HttpRequest.newBuilder()
-            .uri(URI.create("https://localhost:8443/admin/realms" + path))
+            .uri(URI.create(KEYCLOAK_URL + "/admin/realms" + path))
             .header("Authorization", "Bearer " + adminToken)
             .GET().build(), BodyHandlers.ofString());
     }
 
     private static HttpResponse<String> apiPost(String path, String jsonBody) throws Exception {
         return client.send(HttpRequest.newBuilder()
-            .uri(URI.create("https://localhost:8443/admin/realms" + path))
+            .uri(URI.create(KEYCLOAK_URL + "/admin/realms" + path))
             .header("Authorization",  "Bearer " + adminToken)
             .header("Content-Type",   "application/json")
             .POST(BodyPublishers.ofString(jsonBody))
@@ -384,7 +392,7 @@ public class SetupLocalKeycloak {
 
     private static HttpResponse<String> apiPut(String path, String jsonBody) throws Exception {
         return client.send(HttpRequest.newBuilder()
-            .uri(URI.create("https://localhost:8443/admin/realms" + path))
+            .uri(URI.create(KEYCLOAK_URL + "/admin/realms" + path))
             .header("Authorization", "Bearer " + adminToken)
             .header("Content-Type",  "application/json")
             .PUT(jsonBody != null ? BodyPublishers.ofString(jsonBody) : BodyPublishers.noBody())
@@ -393,7 +401,7 @@ public class SetupLocalKeycloak {
 
     private static HttpResponse<String> apiDelete(String path) throws Exception {
         return client.send(HttpRequest.newBuilder()
-            .uri(URI.create("https://localhost:8443/admin/realms" + path))
+            .uri(URI.create(KEYCLOAK_URL + "/admin/realms" + path))
             .header("Authorization", "Bearer " + adminToken)
             .DELETE().build(), BodyHandlers.ofString());
     }
