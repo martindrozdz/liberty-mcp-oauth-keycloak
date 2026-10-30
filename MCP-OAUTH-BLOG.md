@@ -413,26 +413,21 @@ The decoded access token (see json below) should contain:
 
 ### Debugging
 
+The order of steps is important (important caveat - the script has only been tested for mac OS):
+1. Shutdown your browser, open liberty and Bob (for new certificates to be picked up).
+2. Run the `Setup.java` script to completion
+3. In a new terminal start up Liberty
+4. Start up IBM Bob and find the task-server in Settings->MCP servers
+5. Click the `Authenticate` button (if `Authenticate` is not present hover over the error exclamation mark icon for a more detailed description of the problem)
+6. After authenticate your browser should show a login screen, continue to login with testuser or testadmin.
+7. if you don't see a login but see "An error occurred, please login again through your application." then close the window and try `Authenticate` again. This should work.
+
+
+If the above step do not work you can:
 1. use Keycloak logs
 2. use Open liberty logs
 3. use the curl command mentioned above
 4. press the Reset Auth button (in IBM Bob) to reset authentication for a new user
-
-**Important note on restarting applications after certificate changes:**
-- **IBM Bob**: On Mac OS IBM Bob does **not** need to be restarted as `NODE_EXTRA_CA_CERTS` is set via `launchctl setenv`.
-- **Open Liberty (`liberty:dev`)**: **Must be restarted** (`Ctrl+C` and `./mvnw liberty:dev`) if it was already running when certificates were generated, so that it reloads the new keystore from disk into memory.
-- **Firefox**: **Must be restarted** because Firefox maintains its own independent certificate store and TLS session cache, unlike Safari and Chrome which automatically query the macOS System Keychain.
-
-The order of steps is important:
-1. Close your browser and Bob (for new certificates to be picked up).
-2. Run the `Setup.java` script
-3. Ensure that keycloak is running
-4. In a new terminal start up Liberty
-5. Start up IBM Bob find the task-server in Settings->MCP servers
-6. Click the `Authenticate` button (if `Authenticate` is not present hover over the error exclamation mark icon for a more detailed description of the problem)
-7. If you see "An error occurred, please login again through your application." then close the window and try `Authenticate` again. This should work.
-
-
 
 ### Letting clients register themselves
 
@@ -451,7 +446,8 @@ Node only extends its list through NODE_EXTRA_CA_CERTS.
   • NODE_EXTRA_CA_CERTS, so Node/Electron (Bob) trusts it.
 
 The correct way to configure NODE_EXTRA_CA_CERTS for GUI apps on macOS is to:
-Write to `~/.config/environment.plist` and call `launchctl setenv NODE_EXTRA_CA_CERTS <path-to-certificate>`
+Write to the crt location to `~/.config/environment.plist` and call `launchctl setenv NODE_EXTRA_CA_CERTS <path-to-certificate>`
+The script already does this on mac os.
 
 ## What it looks like in use
 
