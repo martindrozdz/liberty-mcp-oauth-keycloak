@@ -92,12 +92,17 @@ public class SetupLocalKeycloak {
 
         // 5. Create realm 'liberty-demo' if not exists
         System.out.println("[2/8] Configuring realm...");
+        JsonObject realmPayload = Json.createObjectBuilder()
+            .add("realm", "liberty-demo")
+            .add("enabled", true)
+            .add("sslRequired", "all")
+            .build();
         if (apiGet("/liberty-demo").statusCode() == 404) {
-            apiPost("", Json.createObjectBuilder()
-                .add("realm", "liberty-demo").add("enabled", true).build().toString());
-            System.out.println(" - Created realm 'liberty-demo'");
+            apiPost("", realmPayload.toString());
+            System.out.println(" - Created realm 'liberty-demo' (sslRequired=all)");
         } else {
-            System.out.println(" - Realm 'liberty-demo' exists");
+            apiPut("/liberty-demo", realmPayload.toString());
+            System.out.println(" - Realm 'liberty-demo' updated (sslRequired=all)");
         }
 
         // 6. Create roles: taskuser, taskadmin

@@ -45,7 +45,7 @@
         userIdentifier="preferred_username"
         inboundPropagation="required"
         tokenReuse="true">
-        <protectedResourceMetadata advertisedScopes="mcp-demo-server,openid,profile"/>
+        <protectedResourceMetadata advertisedScopes="mcp-demo-server,profile"/>
     </openidConnectClient>
 
     <authFilter id="mcp-auth-filter">

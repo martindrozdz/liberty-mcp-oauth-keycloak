@@ -10,5 +10,7 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HTTPS_KEY_STORE_FILE: /custom-keys/localhost.p12
       KC_HTTPS_KEY_STORE_PASSWORD: ${keystore_password}
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_URL: https://localhost:8443
     volumes:
       - ./src/main/keycloak:/custom-keys:Z,U

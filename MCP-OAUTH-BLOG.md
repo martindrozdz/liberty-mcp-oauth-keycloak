@@ -416,9 +416,17 @@ The decoded access token (see json below) should contain:
 1. use Keycloak logs
 2. use Bobs Debugging "Output" Window
 3. use the curl command mentioned above
-4. Press the Reset Auth button (in IBM Bob) to reset authentication (example for a new user)
-5. Restart IBM Bob (sometimes this will show an Authenticate button in the MCP servers list when one was missing)
-6. use IBM Bob to help you debug ;-)
+4. press the Reset Auth button (in IBM Bob) to reset authentication for a new user
+
+The order of steps is important
+1. Close your browser and Bob (for new certifcated to be picked up).
+2. Run the Setup.java script
+3. Ensure that keycloak is running
+4. In a new terminal start up Liberty
+5. Start up IBM Bob find the task-server in Settings->MCP servers
+6. Click the `Authenticate` button (if `Authenticate` is not present hover over the error exclamation mark icon for a more deatiled description of the problem)
+7. If you see "An error occurred, please login again through your application." then close the window and try `Authenticate` again. This should work.
+
 
 
 ### Letting clients register themselves

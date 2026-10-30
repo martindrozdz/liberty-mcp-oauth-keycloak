@@ -26,11 +26,14 @@ public class Setup {
 
     private static final String  OS_NAME    = System.getProperty("os.name").toLowerCase();
     private static final Path    WORK_DIR   = Path.of(".");
+    private static List<String>  composeBase = null;
 
     public static void main(String... args) throws Exception {
         System.out.println("========================================================================");
         System.out.println("Open Liberty MCP Demo - Full Local Setup (cross-platform)");
         System.out.println("========================================================================");
+
+        boolean clean = Arrays.asList(args).contains("--clean") || Arrays.asList(args).contains("-c");
 
         // ── 1. Create .env if missing ─────────────────────────────────────────
         Path envFile = Path.of(".env");
@@ -48,14 +51,57 @@ public class Setup {
 
         // keytool ships with every JDK — located via java.home for reliable cross-platform resolution
         String keytool = Path.of(System.getProperty("java.home"), "bin", "keytool").toString();
+        Path caP12 = Path.of("ca.p12");
+        Path caCrt = Path.of("ca.crt");
         Path p12 = Path.of("localhost.p12");
-        Path crt = Path.of("localhost.crt");
+        Path serverCsr = Path.of("localhost.csr");
+        Path serverSignedCrt = Path.of("localhost-signed.crt");
 
-        // ── 2. Generate keystore ──────────────────────────────────────────────
-        if (Files.exists(p12)) {
-            System.out.println("[2/7] localhost.p12 already exists — skipping generation");
+        if (clean) {
+            System.out.println("      Clean flag detected — removing existing certificates...");
+            Files.deleteIfExists(caP12);
+            Files.deleteIfExists(caCrt);
+            Files.deleteIfExists(p12);
+            Files.deleteIfExists(serverCsr);
+            Files.deleteIfExists(serverSignedCrt);
+        }
+
+        // ── 2. Generate Local Root CA ─────────────────────────────────────────
+        if (Files.exists(caP12) && Files.exists(caCrt)) {
+            System.out.println("[2/7] Local Root CA (ca.p12 / ca.crt) already exists — skipping generation");
         } else {
-            System.out.println("[2/7] Generating self-signed certificate...");
+            System.out.println("[2/7] Generating Local Root CA (ca.p12 / ca.crt)...");
+            runCommand(List.of(keytool,
+                "-genkeypair",
+                "-alias",     "rootca",
+                "-keyalg",    "RSA",
+                "-keysize",   "2048",
+                "-validity",  "3650",
+                "-keystore",  caP12.toString(),
+                "-storetype", "PKCS12",
+                "-storepass", keystorePassword,
+                "-dname",     "CN=Local Open Liberty MCP Root CA",
+                "-ext",       "BC=ca:true",
+                "-ext",       "KU=keyCertSign,cRLSign"
+            ), true);
+
+            runCommand(List.of(keytool,
+                "-exportcert",
+                "-alias",     "rootca",
+                "-keystore",  caP12.toString(),
+                "-storetype", "PKCS12",
+                "-storepass", keystorePassword,
+                "-rfc",
+                "-file",      caCrt.toString()
+            ), true);
+        }
+
+        // ── 3. Generate & Sign Server Certificate ──────────────────────────────
+        if (Files.exists(p12)) {
+            System.out.println("[3/7] localhost.p12 already exists — skipping generation");
+        } else {
+            System.out.println("[3/7] Generating and signing server certificate (localhost.p12)...");
+            // Generate server keypair
             runCommand(List.of(keytool,
                 "-genkeypair",
                 "-alias",     "localhost",
@@ -65,26 +111,58 @@ public class Setup {
                 "-keystore",  p12.toString(),
                 "-storetype", "PKCS12",
                 "-storepass", keystorePassword,
-                "-dname",     "CN=localhost",
-                "-ext",       "SAN=DNS:localhost,IP:127.0.0.1",
-                "-ext",       "BC=ca:true"
+                "-dname",     "CN=localhost"
             ), true);
-        }
 
-        // ── 3. Export PEM certificate ─────────────────────────────────────────
-        if (Files.exists(crt)) {
-            System.out.println("[3/7] localhost.crt already exists — skipping export");
-        } else {
-            System.out.println("[3/7] Exporting PEM certificate...");
+            // Generate CSR
             runCommand(List.of(keytool,
-                "-exportcert",
+                "-certreq",
                 "-alias",     "localhost",
                 "-keystore",  p12.toString(),
                 "-storetype", "PKCS12",
                 "-storepass", keystorePassword,
-                "-rfc",
-                "-file",      crt.toString()
+                "-file",      serverCsr.toString()
             ), true);
+
+            // Sign CSR with Local Root CA
+            runCommand(List.of(keytool,
+                "-gencert",
+                "-alias",     "rootca",
+                "-keystore",  caP12.toString(),
+                "-storetype", "PKCS12",
+                "-storepass", keystorePassword,
+                "-infile",    serverCsr.toString(),
+                "-outfile",   serverSignedCrt.toString(),
+                "-validity",  "365",
+                "-ext",       "SAN=DNS:localhost,IP:127.0.0.1",
+                "-ext",       "EKU=serverAuth",
+                "-ext",       "KU=digitalSignature,keyEncipherment"
+            ), true);
+
+            // Import Root CA into server keystore
+            runCommand(List.of(keytool,
+                "-importcert",
+                "-alias",     "rootca",
+                "-keystore",  p12.toString(),
+                "-storetype", "PKCS12",
+                "-storepass", keystorePassword,
+                "-file",      caCrt.toString(),
+                "-noprompt"
+            ), true);
+
+            // Import signed server certificate reply into server keystore
+            runCommand(List.of(keytool,
+                "-importcert",
+                "-alias",     "localhost",
+                "-keystore",  p12.toString(),
+                "-storetype", "PKCS12",
+                "-storepass", keystorePassword,
+                "-file",      serverSignedCrt.toString(),
+                "-noprompt"
+            ), true);
+
+            Files.deleteIfExists(serverCsr);
+            Files.deleteIfExists(serverSignedCrt);
         }
 
         // ── 4. Copy keystores into place ──────────────────────────────────────
@@ -97,18 +175,16 @@ public class Setup {
         Files.createDirectories(keycloakDir);
         Files.copy(p12, keycloakDir.resolve("localhost.p12"), StandardCopyOption.REPLACE_EXISTING);
 
-        // ── 5. Import certificate into OS trust store ─────────────────────────
-        // Bob (Electron/Chromium) requires the cert in the login keychain with -p ssl.
-        // The System keychain alone is silently ignored by Chromium/Node.js.
-        System.out.println("[5/7] Importing certificate into OS trust store...");
+        // ── 5. Import Root CA into OS trust store & configure Node.js ─────────
+        System.out.println("[5/7] Importing Root CA into OS trust store...");
         String loginKeychain = System.getProperty("user.home") + "/Library/Keychains/login.keychain-db";
-        boolean inSystem = isCertInKeychain(keytool, crt, "/Library/Keychains/System.keychain");
-        boolean inLogin  = isCertInKeychain(keytool, crt, loginKeychain);
-        if (inSystem && inLogin) {
-            System.out.println("      Certificate already in System and login keychains — skipping");
+        boolean inSystem = isCertInKeychain(keytool, caCrt, "/Library/Keychains/System.keychain");
+        if (inSystem) {
+            System.out.println("      Root CA already in System keychain — skipping");
         } else {
-            importCertIntoTrustStore(keytool, crt, loginKeychain, inSystem, inLogin);
+            importCertIntoTrustStore(keytool, caCrt, loginKeychain, inSystem, true);
         }
+        configureNodeExtraCaCerts(caCrt);
 
         // ── 6. Start Keycloak container ───────────────────────────────────────
         System.out.println("[6/7] Starting Keycloak container...");
@@ -119,8 +195,13 @@ public class Setup {
         runJBang("SetupLocalKeycloak.java");
 
         System.out.println("========================================================================");
-        System.out.println("Setup complete! Run './mvnw liberty:dev' to start Open Liberty.");
+        System.out.println("Setup complete!");
+        System.out.println("1. Fully QUIT and relaunch Bob IDE (Cmd+Q) to apply NODE_EXTRA_CA_CERTS.");
+        System.out.println("2. In Bob MCP settings, click 'Reset Auth' / 'Re-authenticate' next to the server.");
+        System.out.println("3. Start Open Liberty in another terminal: './mvnw liberty:dev'");
+        System.out.println("Streaming Keycloak logs below (press Ctrl+C to stop viewing logs)...");
         System.out.println("========================================================================");
+        tailKeycloakLogs();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -156,6 +237,7 @@ public class Setup {
      */
     private static boolean isCertInKeychain(String keytool, Path crt, String keychain) throws Exception {
         String fingerprint = getCertFingerprint(keytool, crt);
+        System.out.println(">>> RUNNING COMMAND: security find-certificate -a -Z " + keychain);
         Process findProc = new ProcessBuilder(
                 "security", "find-certificate", "-a", "-Z", keychain)
                 .redirectErrorStream(true).start();
@@ -179,15 +261,53 @@ public class Setup {
                     "-k", "/Library/Keychains/System.keychain",
                     crt.toString()), true);
         }
-        if (!inLogin) {
-            System.out.println("      Adding certificate to login keychain (for Bob/Chromium)...");
-            runCommand(List.of(
-                    "security", "add-trusted-cert",
-                    "-r", "trustRoot", "-p", "ssl",
-                    "-k", loginKeychain,
-                    crt.toString()), true);
-        }
         System.out.println("      Certificate imported. Restart Bob/browsers after setup completes.");
+    }
+
+    /**
+     * Configures NODE_EXTRA_CA_CERTS in macOS user environment (environment.plist)
+     * and sets it via launchctl for Node.js / Bob IDE.
+     */
+    private static void configureNodeExtraCaCerts(Path crt) throws Exception {
+        if (!OS_NAME.contains("mac") && !OS_NAME.contains("darwin")) return;
+
+        String absoluteCrtPath = crt.toAbsolutePath().normalize().toString();
+        Path plistDir = Path.of(System.getProperty("user.home"), ".config");
+        Files.createDirectories(plistDir);
+        Path plistFile = plistDir.resolve("environment.plist");
+
+        boolean needWrite = true;
+        if (Files.exists(plistFile)) {
+            String content = Files.readString(plistFile);
+            if (content.contains("NODE_EXTRA_CA_CERTS") && content.contains(absoluteCrtPath)) {
+                needWrite = false;
+            } else if (content.contains("<dict>")) {
+                String updated;
+                if (content.contains("<key>NODE_EXTRA_CA_CERTS</key>")) {
+                    updated = content.replaceAll("(?s)<key>NODE_EXTRA_CA_CERTS</key>\\s*<string>[^<]*</string>",
+                            "<key>NODE_EXTRA_CA_CERTS</key>\n    <string>" + absoluteCrtPath + "</string>");
+                } else {
+                    updated = content.replace("<dict>", "<dict>\n    <key>NODE_EXTRA_CA_CERTS</key>\n    <string>" + absoluteCrtPath + "</string>");
+                }
+                Files.writeString(plistFile, updated);
+                needWrite = false;
+            }
+        }
+
+        if (needWrite) {
+            String plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                    "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
+                    "<plist version=\"1.0\">\n" +
+                    "<dict>\n" +
+                    "    <key>NODE_EXTRA_CA_CERTS</key>\n" +
+                    "    <string>" + absoluteCrtPath + "</string>\n" +
+                    "</dict>\n" +
+                    "</plist>\n";
+            Files.writeString(plistFile, plist);
+        }
+
+        runCommand(List.of("launchctl", "setenv", "NODE_EXTRA_CA_CERTS", absoluteCrtPath), false);
+        System.out.println("      NODE_EXTRA_CA_CERTS configured for Node.js/Bob IDE (" + absoluteCrtPath + ")");
     }
 
     /**
@@ -195,6 +315,7 @@ public class Setup {
      * Returns a string like "AB:CD:EF:..." (uppercase, colon-separated).
      */
     private static String getCertFingerprint(String keytool, Path crt) throws Exception {
+        System.out.println(">>> RUNNING COMMAND: " + keytool + " -printcert -file " + crt);
         Process proc = new ProcessBuilder(keytool, "-printcert", "-file", crt.toString())
                 .redirectErrorStream(true).start();
         String output = new String(proc.getInputStream().readAllBytes());
@@ -214,16 +335,19 @@ public class Setup {
      */
     private static void startKeycloak() throws Exception {
         List<List<String>> candidates = List.of(
-            List.of("podman-compose", "up", "-d"),
-            List.of("podman",         "compose", "up", "-d"),
-            List.of("docker",         "compose", "up", "-d"),
-            List.of("docker-compose", "up", "-d")
+            List.of("podman-compose", "up", "-d", "--force-recreate"),
+            List.of("podman",         "compose", "up", "-d", "--force-recreate"),
+            List.of("docker",         "compose", "up", "-d", "--force-recreate"),
+            List.of("docker-compose", "up", "-d", "--force-recreate")
         );
 
         for (List<String> cmd : candidates) {
             if (commandExists(cmd.get(0))) {
                 int exit = runCommand(cmd, true);
-                if (exit == 0) return;
+                if (exit == 0) {
+                    composeBase = cmd.subList(0, cmd.size() - 3);
+                    return;
+                }
                 System.err.println("compose command '" + cmd.get(0) + "' failed with exit " + exit);
                 System.exit(exit);
             }
@@ -233,6 +357,32 @@ public class Setup {
         System.err.println("Install podman-compose or ensure Podman/Docker with compose support is on your PATH.");
         System.err.println("See the Prerequisites section in docs/DOCUMENTATION.md for install instructions.");
         System.exit(1);
+    }
+
+    /**
+     * Tails Keycloak container logs in real-time.
+     */
+    private static void tailKeycloakLogs() throws Exception {
+        if (composeBase != null) {
+            List<String> cmd = new ArrayList<>(composeBase);
+            cmd.addAll(List.of("logs", "-f", "keycloak"));
+            runCommand(cmd, false);
+            return;
+        }
+
+        List<List<String>> candidates = List.of(
+            List.of("podman-compose", "logs", "-f", "keycloak"),
+            List.of("podman",         "compose", "logs", "-f", "keycloak"),
+            List.of("docker",         "compose", "logs", "-f", "keycloak"),
+            List.of("docker-compose", "logs", "-f", "keycloak")
+        );
+
+        for (List<String> cmd : candidates) {
+            if (commandExists(cmd.get(0))) {
+                runCommand(cmd, false);
+                return;
+            }
+        }
     }
 
     /** Checks whether a command exists on the PATH without executing it. */
@@ -252,6 +402,7 @@ public class Setup {
      * If failFast is true, exits immediately on non-zero exit code.
      */
     private static int runCommand(List<String> cmd, boolean failFast) throws Exception {
+        System.out.println(">>> RUNNING COMMAND: " + String.join(" ", cmd));
         ProcessBuilder pb = new ProcessBuilder(cmd)
                 .directory(WORK_DIR.toFile())
                 .redirectOutput(Redirect.INHERIT)
