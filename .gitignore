@@ -4,8 +4,8 @@ src/main/liberty/config/resources/security/localhost.p12
 src/main/liberty/config/server.env
 
 # Generated keystores / certs at project root
-localhost.p12
-localhost.crt
+*.p12
+*.crt
 .env
 
 # Maven build output
