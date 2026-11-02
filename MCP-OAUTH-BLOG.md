@@ -11,17 +11,17 @@ For this demo we've picked Keycloak because it's free and supports everything we
 
 An AI assistant that can manage your tasks for you is useful. An AI assistant that lets someone impersonate you, or lets an ordinary user see and change other people's tasks, is a liability. In our demo, only you and an admin can update your tasks, only you and an admin can see them, and only an admin can delete them.
 
-The moment an MCP server authorises a person to perform an action, it should know:
+The moment an MCP server authorizes a person to perform an action, it should know:
 - who that person is (via a username) and
 - what they are allowed to do (via a role) and
 - that the person is who they say they are (authentication)
 
 This blog explains how a task editor demo that we created does that and covers:
 - the Open Liberty MCP server setup
-- the Keycloak authorisation server setup
+- the Keycloak authorization server setup
 - how to get IBM Bob (the AI assistant) to trust the Open Liberty MCP Server and Keycloak  
-- Java code demonstrating authorisation decisions
-- the purpose of OAuth in authorisation
+- Java code demonstrating authorization decisions
+- the purpose of OAuth in authorization
 ## Open Liberty
 
 To enable a MCP server on Liberty add the jakartaee-10.0 and mcp-1.0 features &
@@ -42,8 +42,8 @@ Open Liberty (in this example) is not configured to log users in or issue access
 The `openidConnectClient` element in the `server.xml` configures Liberty so that:
 - Liberty knows where to find Keycloak and
 - Liberty knows which access tokens to accept and
-- Liberty knows which claims are important to get roles for a user (in this case the roles are stored in the mcp-demo-server claim).
-- Which servers Liberty has trusted to act as authorisation servers for the AI Assistants.
+- Liberty knows which claims are important to get roles for a user (in this case the roles are stored in the `groupIds` claim).
+- Which servers Liberty has trusted to act as authorization servers for the AI Assistants.
 ```xml
 <openidConnectClient
     id="mcp-oidc-config"
@@ -77,9 +77,9 @@ The settings that matter:
 - `protectedResourceMetadata`: publishes metadata telling MCP clients which authorization server and scopes to use. This is what makes the discovery sequence shown later possible.
 ### Configuring who can access the MCP server
 
-There are two layers of authorisation here:
+There are two layers of authorization here:
   - the `server.xml` asks "is the request for the right audience and is the access token valid?"
-  - the `web.xml`    asks "is this users role authorised to access resources with the specified url-pattern?"
+  - the `web.xml`    asks "is this users role authorized to access resources with the specified url-pattern?"
 ```xml
    1  <security-constraint>
    2      <web-resource-collection>
@@ -104,9 +104,9 @@ If the user doesn't have either the taskadmin or taskuser role in his access tok
 
 
 ## The Java
-### Authorisation Pattern 1 - Identity preservation
+### Authorization Pattern 1 - Identity preservation
 
-This pattern records the task owner so that only authorised users can access it. Liberty reads the UserPrincipal.name field from the validated token (see line 14 below) and the tool stores it as the owner of the new task.
+This pattern records the task owner so that only authorized users can access it. Liberty reads the UserPrincipal.name field from the validated token (see line 14 below) and the tool stores it as the owner of the new task.
 ```java
    1  @ApplicationScoped
    2  public class TaskTools {
@@ -137,7 +137,7 @@ Where this owner field gets run for identity checks:
 Without the owner recorded here, neither tool could tell whose tasks they are looking at.
 The owner comes from the validated token and is never taken from a tool argument, so a caller cannot create a task in someone else's name.
 
-### Authorisation Pattern 2 - Role and Identity check combined
+### Authorization Pattern 2 - Role and Identity check combined
 
 The updateTask tool combines both checks to decide whether the call is allowed at all, and refuses it if neither holds:
 - line 7 - Identity check: `getUserPrincipal().getName()` says who the caller is, and line 10 compares that name with the task's owner.
@@ -157,16 +157,16 @@ The method runs for every authenticated user, and the code decides what to do wi
    8          boolean isAdmin = httpRequest.isUserInRole("taskadmin");
    9
   10          if (!isAdmin && !task.getOwner().equals(currentUser)) {
-  11              throw new ToolCallException("Not authorised. Only the task owner or a taskadmin may update it.");
+  11              throw new ToolCallException("Not authorized. Only the task owner or a taskadmin may update it.");
   12          }
               ...
   13      }
 ```
 
-### Authorisation Pattern 3 - Declarative role check with @RolesAllowed
+### Authorization Pattern 3 - Declarative role check with @RolesAllowed
 
 The deleteTask tool does not check the role in its own code. With `@RolesAllowed("taskadmin")` (line 2 below) Liberty compares the roles in the token before the method is even called.
-A user without the taskadmin role is refused with a HTTP 403 resoponse and the tool body never executes.
+A user without the taskadmin role is refused with a HTTP 403 response and the tool body never executes.
 ```java
    1      @Tool(description = "Delete a task (admin only)")
    2      @RolesAllowed("taskadmin")
@@ -181,16 +181,19 @@ Use this pattern when a tool is allowed for a role and nobody else, as with dele
 ## Keycloak
 
 
-### Install Podman
+### Prerequisites
 
-Please see https://podman.io/docs/installation. 
+- Podman (or Docker). See https://podman.io/docs/installation.
+- JBang. See https://www.jbang.dev/.
+- A JDK, which provides `keytool`.
+
+The included `Setup.java` JBang script is the full first-time setup: it creates the certificates, trusts them on your machine, and starts Keycloak. It delegates the Keycloak configuration to `SetupLocalKeycloak.java`, which you can also run on its own if you only want to configure Keycloak. Both scripts were tested on macOS only.
 
 ### Run Keycloak
 
-You will need to use `keytool` to create a CA certificate for Keycloak. 
+Keycloak needs a TLS certificate, which `Setup.java` creates with `keytool`.
 With the docker-compose.yml file in the same directory run `podman compose up`
 ```YAML
-
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.3
@@ -203,20 +206,20 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HTTPS_KEY_STORE_FILE: /custom-keys/localhost.p12
       KC_HTTPS_KEY_STORE_PASSWORD: ${keystore_password}
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_URL: https://localhost:8443
     volumes:
       - ./src/main/keycloak:/custom-keys:Z,U
 ```
 
 The `${keystore_password}` value is read from a `.env` file next to `docker-compose.yml`, which `docker compose` and `podman compose` load automatically. `Setup.java` creates that file for you, and it is gitignored so the password is never committed.
 
-This will download and run the keycloack image.
-
-### Prerequisites
+This will download and run the Keycloak image.
 
 - Keycloak Admin is reachable at `https://localhost:8443/admin`. It uses a self-signed certificate, so accept the browser warning.
-- You can log in to the **master** realm as `admin` with password `admin`.
+- You can log in to the **master** realm as `admin` with password `admin`. These are demo values only.
 
-The included [SetupLocalKeycloak.java](SetupLocalKeycloak.java) JBang script performs the steps included below. It uses the Keycloak Admin REST API so Keycloak and was tested on Mac OS. Please see https://www.jbang.dev/ for setup instructions.
+The included [SetupLocalKeycloak.java](SetupLocalKeycloak.java) JBang script performs the steps below. It uses the Keycloak Admin REST API and was tested on macOS.
 
 ### Create the realm
 
@@ -334,7 +337,7 @@ For each user:
 
 ### Verify the access token
 
-Once the above script has run you can test it with this curl commmand below to request a token with the password grant and decode the access token at jwt.io:
+Once the above script has run you can test it with this curl command to request a token with the password grant and decode the access token at jwt.io:
 ```bash
 curl -k -s -X POST \
   https://localhost:8443/realms/liberty-demo/protocol/openid-connect/token \
@@ -358,7 +361,7 @@ The decoded access token (see json below) should contain:
   Open liberty only reads roles from groupIds. Open Liberty's web.xml must contain taskadmin, otherwise the MCP tools will not be called.
   
   • Line 45: preferred_username is testadmin 
-  Open liberty uses this for for getUserPrincipal().getName()
+  Open liberty uses this for getUserPrincipal().getName()
 ```json
      1  {
      2    "exp": 1792674127,
@@ -411,10 +414,10 @@ The decoded access token (see json below) should contain:
     49  }
 ```
 
-### Debugging
+### Connecting and debugging
 
-The order of steps is important (important caveat - the script has only been tested for mac OS):
-1. Shutdown your browser, open liberty and Bob (for new certificates to be picked up).
+The order of steps is important (the script has only been tested on macOS):
+1. Shut down your browser, Open Liberty and Bob (for new certificates to be picked up).
 2. Run the `Setup.java` script to completion
 3. In a new terminal start up Liberty
 4. Start up IBM Bob and find the task-server in Settings->MCP servers
@@ -423,7 +426,7 @@ The order of steps is important (important caveat - the script has only been tes
 7. if you don't see a login but see "An error occurred, please login again through your application." then close the window and try `Authenticate` again. This should work.
 
 
-If the above step do not work you can:
+If the above steps do not work you can:
 1. use Keycloak logs
 2. use Open liberty logs
 3. use the curl command mentioned above
@@ -434,7 +437,7 @@ If the above step do not work you can:
 Because clients register at runtime, Keycloak's *client registration policies* have to allow it. They are under **Clients → Client registration** in the admin console, on the **Client registration policies** sub-tab, under **Anonymous access policies**. MCP clients register without credentials, so these are the policies that apply. By default Keycloak refuses anonymous registration. The demo changes two things:
 
 - **Trusted Hosts**: the policy is deleted. It restricts registration to listed hosts, and keeping it means matching those hosts to the container runtime's networking. This is safe here only because Keycloak is bound to the loopback address. Anything reachable from a network should keep this policy and list its hosts.
-- **Allowed Client Scopes**: `mcp-demo-server`, `profile`, `offline_access` are added so that registered clients may use them. A client asking for a scope outside this list is refused. The first three are what the demo needs. `offline_access` is there as a convenience, so that a client which asks for it is not refused.
+- **Allowed Client Scopes**: `mcp-demo-server`, `profile` and `openid` are added so that registered clients may use them. A client asking for a scope outside this list is refused.
 
 ##  IBM Bob Certificates
 
@@ -456,7 +459,6 @@ Once connected to the MCP server in IBM Bob, use chat window to try:
 - *List my tasks.* (`taskadmin` sees every user's tasks)
 - *Create a task called "Write docs" and mark it as in progress.*
 - *Delete task 3.* (`taskadmin` only)
-- *Run printUser.* (`taskadmin` only) Replies with `printUser executed for testadmin.`, confirming which identity Liberty extracted from the token.
 
 For example, as `testadmin`:
 
@@ -469,9 +471,9 @@ Task data is held in memory only, so restarting the server clears everything you
 To see the role checks working, log in as `testuser` and create a task. `testuser` only sees their own tasks, can change the status of their own tasks but not anyone else's, and cannot delete tasks. Then connect as `testadmin`: the admin sees everyone's tasks, can update any task and can delete tasks.
 
 
-## Running this in production 
+## Running this in production
 
-This sections provides links to advice for hardening and production configuration considerations.
+This section provides links to advice for hardening and production configuration considerations. The Keycloak admin password, user passwords and client secret shown in this post are demo values only. Never use them in production.
 
 ### Keycloak
 
@@ -485,10 +487,10 @@ https://openliberty.io/docs/latest/acme-cert-management.html
 
 ## The Purpose of OAuth
 
-We use OAuth to stop unauthorised users from accessing protected resources on the MCP Server. 
+We use OAuth to stop unauthorized users from accessing protected resources on the MCP Server. 
 We do this by configuring roles for users in:
 - the Open Liberty MCP server 
-- the Keycloak authorisation server
+- the Keycloak authorization server
 
 Users are assigned to roles. Roles are used to give users permission to do certain activities. 
 Some are permissive, like a taskadmin role which lets you do almost anything.
@@ -502,10 +504,10 @@ When the AI assistant tries to perform an action on behalf of users then:
 - Keycloak first asks users for a password (covered in more detail later) and
 - if the password is correct then
 - Keycloak issues a token with permissions for the roles that the user is configured with.
-- Users uses this token to perform only authorised actions on the MCP server 
+- Users uses this token to perform only authorized actions on the MCP server 
 - The MCP server is the "_audience_" that the token is valid.
 
-The AI Assitant (IBM Bob) only knows of the MCP server URL. 
+The AI Assistant (IBM Bob) only knows of the MCP server URL.
 Upon successful authentication, everything else is discovered.
 Authentication with Keycloak needs to be initiated inside Bob. 
 
@@ -520,16 +522,14 @@ When Keycloak and the MCP server are configured and running, connecting Bob to t
       "disabled": false,
       "alwaysAllow": [
         "createTask",
-        "listTasks",
-        "getMyTasks",
-        "printUser"
+        "listTasks"
       ]
     }
   }
 }
 ```
-- Locate the Bob MCP settings and find the task-mcp-server entry.
-- Click the **Authenticate** button next to the task-mcp-server.
+- Locate the Bob MCP settings and find the task-server entry.
+- Click the **Authenticate** button next to the task-server.
 
 
 **Detailed flow**
@@ -573,17 +573,17 @@ sequenceDiagram
     K-->>C: access token
     end
     rect rgb(255, 228, 228)
-    Note over C,L: Authorised tool call
-    C->>L: call /mcp with Authorisation header using Bearer authentication scheme containing the access token
+    Note over C,L: Authorized tool call
+    C->>L: call /mcp with Authorization header using Bearer authentication scheme containing the access token
     L-->>C: tool result
     end
 ```
 
 OAuth depend on a client ID/secret which usually are created manually.
-Dynamic client Registration automates this so that AI assitants get credentials programmatically.
+Dynamic client Registration automates this so that AI assistants get credentials programmatically.
 
 
-## Takeaways (Redo and check that it has the right focus)
+## Takeaways
 
 - OAuth lets an AI client act for a person without ever holding their password, and lets the server see who is calling on every request.
 - Keycloak plays the authorization server so that Liberty only has to validate tokens.
@@ -606,12 +606,3 @@ Dynamic client Registration automates this so that AI assitants get credentials 
 ### Keycloak
 
 - [Integrating with Model Context Protocol](https://www.keycloak.org/securing-apps/mcp-authz-server)
-
-
-
-
-
-
-
-
-

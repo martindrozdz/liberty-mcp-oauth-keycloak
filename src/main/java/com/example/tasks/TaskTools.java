@@ -55,7 +55,7 @@ public class TaskTools {
         String currentUser = httpRequest.getUserPrincipal().getName();
         boolean isAdmin = httpRequest.isUserInRole("taskadmin");
         if (!isAdmin && !task.getOwner().equals(currentUser)) {
-            throw new ToolCallException("Not authorised. Only the task owner or a taskadmin may update it.");
+            throw new ToolCallException("Not authorized. Only the task owner or a taskadmin may update it.");
         }
 
         task.setStatus(status);
