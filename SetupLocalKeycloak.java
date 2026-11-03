@@ -64,11 +64,12 @@ public class SetupLocalKeycloak {
         System.out.println("\nKeycloak is up and responding.");
 
         // 3. Read .env file
-        String adminPassword    = readEnv("keycloak_admin_password", "admin");
+        String adminUser        = readEnv("keycloak_admin_username", readEnv("KC_BOOTSTRAP_ADMIN_USERNAME", "admin"));
+        String adminPassword    = readEnv("keycloak_admin_password", readEnv("KC_BOOTSTRAP_ADMIN_PASSWORD", "admin"));
         String keystorePassword = readEnv("keystore_password",       "secretpassword123");
 
         // 4. Acquire admin token
-        String tokenBody = "client_id=admin-cli&username=admin&password=" + adminPassword + "&grant_type=password";
+        String tokenBody = "client_id=admin-cli&username=" + adminUser + "&password=" + adminPassword + "&grant_type=password";
         HttpResponse<String> tokenResp = client.send(
             HttpRequest.newBuilder()
                 .uri(URI.create(KEYCLOAK_URL + "/realms/master/protocol/openid-connect/token"))

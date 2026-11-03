@@ -202,8 +202,8 @@ services:
       - "127.0.0.1:8080:8080"
       - "127.0.0.1:8443:8443"
     environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${keycloak_admin_username}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${keycloak_admin_password}
       KC_HTTPS_KEY_STORE_FILE: /custom-keys/localhost.p12
       KC_HTTPS_KEY_STORE_PASSWORD: ${keystore_password}
       KC_HOSTNAME: localhost
@@ -212,7 +212,7 @@ services:
       - ./src/main/keycloak:/custom-keys:Z,U
 ```
 
-The `${keystore_password}` value is read from a `.env` file next to `docker-compose.yml`, which `docker compose` and `podman compose` load automatically. `Setup.java` creates that file for you, and it is gitignored so the password is never committed.
+The `${keycloak_admin_username}`, `${keycloak_admin_password}`, and `${keystore_password}` values are read from a `.env` file next to `docker-compose.yml`, which `docker compose` and `podman compose` load automatically. `Setup.java` creates that file for you, and it is gitignored so the password is never committed.
 
 This will download and run the Keycloak image.
 

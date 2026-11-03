@@ -42,6 +42,7 @@ public class Setup {
             System.out.println("[1/7] Creating .env with default passwords...");
             Files.writeString(envFile,
                     "keystore_password=secretpassword123\n" +
+                    "keycloak_admin_username=admin\n" +
                     "keycloak_admin_password=admin\n");
             System.out.println("      .env created");
         } else {
