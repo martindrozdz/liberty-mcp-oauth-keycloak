@@ -12,7 +12,7 @@ import java.util.*;
  * Single-file orchestrator that drives the full local setup without bash.
  *
  * Steps:
- *   1. Create .env if missing
+ *   1. (Re)generate .env with the demo passwords
  *   2. Generate TLS certificate via keytool (ships with the JDK)
  *   3. Export PEM certificate via keytool
  *   4. Copy keystores into place for Liberty and Keycloak
@@ -36,18 +36,14 @@ public class Setup {
         // Clean is the default; pass --no-clean to keep existing certificates.
         boolean clean = !Arrays.asList(args).contains("--no-clean");
 
-        // ── 1. Create .env if missing ─────────────────────────────────────────
+        // ── 1. (Re)generate .env ──────────────────────────────────────────────
         Path envFile = Path.of(".env");
-        if (!Files.exists(envFile)) {
-            System.out.println("[1/7] Creating .env with default passwords...");
-            Files.writeString(envFile,
-                    "keystore_password=secretpassword123\n" +
-                    "keycloak_admin_username=admin\n" +
-                    "keycloak_admin_password=admin\n");
-            System.out.println("      .env created");
-        } else {
-            System.out.println("[1/7] .env already exists — skipping");
-        }
+        System.out.println("[1/7] (Re)generating .env with demo passwords...");
+        Files.writeString(envFile,
+                "keystore_password=secretpassword123\n" +
+                "keycloak_admin_username=admin\n" +
+                "keycloak_admin_password=admin\n");
+        System.out.println("      .env written");
 
         String keystorePassword = readEnv("keystore_password", "secretpassword123");
 
