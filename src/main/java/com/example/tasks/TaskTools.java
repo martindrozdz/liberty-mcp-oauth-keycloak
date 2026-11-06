@@ -28,21 +28,21 @@ public class TaskTools {
             @ToolArg(name = "title", description = "Task title") String title,
             @ToolArg(name = "description", description = "Task description") String description) {
 
-        String taskOwnerId = httpRequest.getUserPrincipal().getName();
+        String userId = httpRequest.getUserPrincipal().getName();
         String displayName = getDisplayName();
-        Task task = taskService.create(title, description, taskOwnerId, displayName);
+        Task task = taskService.create(title, description, userId, displayName);
         return "Created task " + task.getId() + " \"" + task.getTitle() + "\" for " + displayName + ".";
     }
 
     @Tool(description = "List your tasks (admins see all tasks)")
     public String listTasks() {
-        String currentSub = httpRequest.getUserPrincipal().getName();
+        String currentUserId = httpRequest.getUserPrincipal().getName();
         String currentDisplayName = getDisplayName();
         boolean isAdmin = httpRequest.isUserInRole("taskadmin");
 
         String result = "Tasks:";
         for (Task task : taskService.list()) {
-            boolean isOwner = (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentSub))
+            boolean isOwner = (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentUserId))
                     || (task.getDisplayName() != null && task.getDisplayName().equals(currentDisplayName))
                     || (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentDisplayName));
             if (isAdmin || isOwner) {
@@ -62,10 +62,10 @@ public class TaskTools {
             throw new ToolCallException("No task found with id " + id + ".");
         }
 
-        String currentSub = httpRequest.getUserPrincipal().getName();
+        String currentUserId = httpRequest.getUserPrincipal().getName();
         String currentDisplayName = getDisplayName();
         boolean isAdmin = httpRequest.isUserInRole("taskadmin");
-        boolean isOwner = (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentSub))
+        boolean isOwner = (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentUserId))
                 || (task.getDisplayName() != null && task.getDisplayName().equals(currentDisplayName))
                 || (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentDisplayName));
 
