@@ -3,20 +3,20 @@ package com.example.tasks;
 public class Task {
 
     public enum Status {
-        TODO,
-        IN_PROGRESS,
-        DONE
+        TODO,        // Task is pending / not started
+        IN_PROGRESS, // Task is currently being worked on
+        DONE         // Task has been completed
     }
 
-    private final long id;
-    private final String taskOwnerId;
-    private final String displayName;
-    private String title;
-    private String description;
-    private Status status;
+    private final long displayId;      // Human-readable sequential task identifier (e.g. 1, 2, 3)
+    private final String taskOwnerId;  // Immutable security principal identifier (OIDC 'sub' UUID)
+    private final String displayName;  // Human-readable user name for display (e.g. 'preferred_username')
+    private String title;              // Short summary of the task
+    private String description;        // Detailed explanation of the task
+    private Status status;             // Current completion state of the task
 
-    public Task(long id, String title, String description, Status status, String taskOwnerId, String displayName) {
-        this.id = id;
+    public Task(long displayId, String title, String description, Status status, String taskOwnerId, String displayName) {
+        this.displayId = displayId;
         this.title = title;
         this.description = description;
         this.status = status;
@@ -24,8 +24,16 @@ public class Task {
         this.displayName = displayName;
     }
 
+    public long getDisplayId() {
+        return displayId;
+    }
+
+    public long getDisplayID() {
+        return displayId;
+    }
+
     public long getId() {
-        return id;
+        return displayId;
     }
 
     public String getTaskOwnerId() {

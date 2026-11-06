@@ -31,7 +31,7 @@ public class TaskTools {
         String userId = httpRequest.getUserPrincipal().getName();
         String displayName = getDisplayName();
         Task task = taskService.create(title, description, userId, displayName);
-        return "Created task " + task.getId() + " \"" + task.getTitle() + "\" for " + displayName + ".";
+        return "Created task " + task.getDisplayId() + " \"" + task.getTitle() + "\" for " + displayName + ".";
     }
 
     @Tool(description = "List your tasks (admins see all tasks)")
@@ -46,7 +46,7 @@ public class TaskTools {
                     || (task.getDisplayName() != null && task.getDisplayName().equals(currentDisplayName))
                     || (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentDisplayName));
             if (isAdmin || isOwner) {
-                result += "\n" + task.getId() + ". " + task.getTitle() + " [" + task.getStatus() + "] (owner: " + task.getDisplayName() + ")";
+                result += "\n" + task.getDisplayId() + ". " + task.getTitle() + " [" + task.getStatus() + "] (owner: " + task.getDisplayName() + ", userId: " + task.getTaskOwnerId() + ")";
             }
         }
         return result;

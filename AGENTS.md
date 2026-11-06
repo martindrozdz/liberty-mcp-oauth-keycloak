@@ -33,6 +33,7 @@ Task data is **in-memory only** — all tasks are lost on server restart. Only `
 
 - `@ToolArg(name, description)` on each parameter. For non-string types (dates, datetimes), add `@Schema(jsonSchemaString)` to tell the MCP layer the expected format.
 - Use `ToolCallException` (from `io.openliberty.mcp.tools`) to signal tool-level failures; do not throw generic exceptions.
+- Display `displayName` as a column/field in tool results where it makes sense (e.g. `listTasks` showing `owner: <displayName>`), while keeping underlying security and ACL checks anchored to the immutable `sub` / `userId`.
 
 ## Secrets
 
