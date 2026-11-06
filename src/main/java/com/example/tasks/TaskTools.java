@@ -11,7 +11,6 @@ import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.json.Json;
-import jakarta.json.JsonObject;
 import jakarta.json.JsonReader;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -90,23 +89,15 @@ public class TaskTools {
     }
 
     private String getDisplayName() {
-        String authHeader = httpRequest.getHeader("Authorization");
-        if (authHeader != null && authHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            String token = authHeader.substring(7).trim();
-            String[] parts = token.split("\\.");
-            if (parts.length >= 2) {
-                try {
-                    byte[] decoded = Base64.getUrlDecoder().decode(parts[1]);
-                    try (JsonReader reader = Json.createReader(new ByteArrayInputStream(decoded))) {
-                        JsonObject payload = reader.readObject();
-                        if (payload.containsKey("preferred_username")) {
-                            return payload.getString("preferred_username");
-                        }
-                    }
-                } catch (Exception ignored) {
+        try {
+            String auth = httpRequest.getHeader("Authorization");
+            if (auth != null && auth.startsWith("Bearer ")) {
+                byte[] payload = Base64.getUrlDecoder().decode(auth.substring(7).split("\\.")[1]);
+                try (JsonReader r = Json.createReader(new ByteArrayInputStream(payload))) {
+                    return r.readObject().getString("preferred_username", httpRequest.getUserPrincipal().getName());
                 }
             }
-        }
+        } catch (Exception ignored) {}
         return httpRequest.getUserPrincipal() != null ? httpRequest.getUserPrincipal().getName() : "unknown";
     }
 }
