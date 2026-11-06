@@ -1,5 +1,8 @@
 package com.example.tasks;
 
+import java.io.ByteArrayInputStream;
+import java.util.Base64;
+
 import org.mcpjava.server.tools.Tool;
 import org.mcpjava.server.tools.ToolArg;
 
@@ -7,6 +10,9 @@ import io.openliberty.mcp.tools.ToolCallException;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.json.Json;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonReader;
 import jakarta.servlet.http.HttpServletRequest;
 
 @ApplicationScoped
@@ -23,20 +29,25 @@ public class TaskTools {
             @ToolArg(name = "title", description = "Task title") String title,
             @ToolArg(name = "description", description = "Task description") String description) {
 
-        String owner = httpRequest.getUserPrincipal().getName();
-        Task task = taskService.create(title, description, owner);
-        return "Created task " + task.getId() + " \"" + task.getTitle() + "\" for " + owner + ".";
+        String taskOwnerId = httpRequest.getUserPrincipal().getName();
+        String displayName = getDisplayName();
+        Task task = taskService.create(title, description, taskOwnerId, displayName);
+        return "Created task " + task.getId() + " \"" + task.getTitle() + "\" for " + displayName + ".";
     }
 
     @Tool(description = "List your tasks (admins see all tasks)")
     public String listTasks() {
-        String currentUser = httpRequest.getUserPrincipal().getName();
+        String currentSub = httpRequest.getUserPrincipal().getName();
+        String currentDisplayName = getDisplayName();
         boolean isAdmin = httpRequest.isUserInRole("taskadmin");
 
         String result = "Tasks:";
         for (Task task : taskService.list()) {
-            if (isAdmin || task.getOwner().equals(currentUser)) {
-                result += "\n" + task.getId() + ". " + task.getTitle() + " [" + task.getStatus() + "] (owner: " + task.getOwner() + ")";
+            boolean isOwner = (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentSub))
+                    || (task.getDisplayName() != null && task.getDisplayName().equals(currentDisplayName))
+                    || (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentDisplayName));
+            if (isAdmin || isOwner) {
+                result += "\n" + task.getId() + ". " + task.getTitle() + " [" + task.getStatus() + "] (owner: " + task.getDisplayName() + ")";
             }
         }
         return result;
@@ -52,9 +63,14 @@ public class TaskTools {
             throw new ToolCallException("No task found with id " + id + ".");
         }
 
-        String currentUser = httpRequest.getUserPrincipal().getName();
+        String currentSub = httpRequest.getUserPrincipal().getName();
+        String currentDisplayName = getDisplayName();
         boolean isAdmin = httpRequest.isUserInRole("taskadmin");
-        if (!isAdmin && !task.getOwner().equals(currentUser)) {
+        boolean isOwner = (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentSub))
+                || (task.getDisplayName() != null && task.getDisplayName().equals(currentDisplayName))
+                || (task.getTaskOwnerId() != null && task.getTaskOwnerId().equals(currentDisplayName));
+
+        if (!isAdmin && !isOwner) {
             throw new ToolCallException("Not authorized. Only the task owner or a taskadmin may update it.");
         }
 
@@ -71,5 +87,26 @@ public class TaskTools {
             throw new ToolCallException("No task found with id " + id + ".");
         }
         return "Task " + id + " has been deleted.";
+    }
+
+    private String getDisplayName() {
+        String authHeader = httpRequest.getHeader("Authorization");
+        if (authHeader != null && authHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            String token = authHeader.substring(7).trim();
+            String[] parts = token.split("\\.");
+            if (parts.length >= 2) {
+                try {
+                    byte[] decoded = Base64.getUrlDecoder().decode(parts[1]);
+                    try (JsonReader reader = Json.createReader(new ByteArrayInputStream(decoded))) {
+                        JsonObject payload = reader.readObject();
+                        if (payload.containsKey("preferred_username")) {
+                            return payload.getString("preferred_username");
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return httpRequest.getUserPrincipal() != null ? httpRequest.getUserPrincipal().getName() : "unknown";
     }
 }

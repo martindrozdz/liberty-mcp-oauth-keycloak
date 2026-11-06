@@ -26,7 +26,7 @@ MCP tools are plain CDI `@ApplicationScoped` beans. Any method annotated with `@
 
 Packages:
 - `com.example.tasks` — `TaskTools` (tool bean) + `TaskService` (`@ApplicationScoped`, in-memory store) + `Task` (entity, with nested `Status` enum)
-- 
+
 Task data is **in-memory only** — all tasks are lost on server restart. Only `taskadmin` may delete tasks.
 
 ## MCP / Liberty-specific patterns

@@ -9,25 +9,43 @@ public class Task {
     }
 
     private final long id;
-    private final String owner;
+    private final String taskOwnerId;
+    private final String displayName;
     private String title;
     private String description;
     private Status status;
 
-    public Task(long id, String title, String description, Status status, String owner) {
+    public Task(long id, String title, String description, Status status, String taskOwnerId, String displayName) {
         this.id = id;
         this.title = title;
         this.description = description;
         this.status = status;
-        this.owner = owner;
+        this.taskOwnerId = taskOwnerId;
+        this.displayName = displayName;
     }
 
     public long getId() {
         return id;
     }
 
+    public String getTaskOwnerId() {
+        return taskOwnerId;
+    }
+
+    public String getOwnerId() {
+        return taskOwnerId;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public String getOwnerDisplayName() {
+        return displayName;
+    }
+
     public String getOwner() {
-        return owner;
+        return displayName != null ? displayName : taskOwnerId;
     }
 
     public String getTitle() {

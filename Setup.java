@@ -284,40 +284,6 @@ public class Setup {
        if (!OS_NAME.contains("mac") && !OS_NAME.contains("darwin")) return;
 
       String absoluteCrtPath = crt.toAbsolutePath().normalize().toString();
-      Path plistDir = Path.of(System.getProperty("user.home"), ".config");
-      Files.createDirectories(plistDir);
-      Path plistFile = plistDir.resolve("environment.plist");
-
-      boolean needWrite = true;
-      if (Files.exists(plistFile)) {
-          String content = Files.readString(plistFile);
-          if (content.contains("NODE_EXTRA_CA_CERTS") && content.contains(absoluteCrtPath)) {
-              needWrite = false;
-          } else if (content.contains("<dict>")) {
-              String updated;
-              if (content.contains("<key>NODE_EXTRA_CA_CERTS</key>")) {
-                  updated = content.replaceAll("(?s)<key>NODE_EXTRA_CA_CERTS</key>\\s*<string>[^<]*</string>",
-                          "<key>NODE_EXTRA_CA_CERTS</key>\n    <string>" + absoluteCrtPath + "</string>");
-              } else {
-                  updated = content.replace("<dict>", "<dict>\n    <key>NODE_EXTRA_CA_CERTS</key>\n    <string>" + absoluteCrtPath + "</string>");
-              }
-              Files.writeString(plistFile, updated);
-              needWrite = false;
-          }
-      }
-
-      if (needWrite) {
-          String plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-                  "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
-                  "<plist version=\"1.0\">\n" +
-                  "<dict>\n" +
-                  "    <key>NODE_EXTRA_CA_CERTS</key>\n" +
-                  "    <string>" + absoluteCrtPath + "</string>\n" +
-                  "</dict>\n" +
-                  "</plist>\n";
-          Files.writeString(plistFile, plist);
-      }
-
       runCommand(List.of("launchctl", "setenv", "NODE_EXTRA_CA_CERTS", absoluteCrtPath), false);
       System.out.println("      NODE_EXTRA_CA_CERTS configured in environment.plist & launchctl (" + absoluteCrtPath + ")");   
     }

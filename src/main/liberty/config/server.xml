@@ -42,7 +42,6 @@
         signatureAlgorithm="FROM_HEADER"
         allowedSignatureAlgorithms="RS256"
         audiences="liberty-mcp-server"
-        userIdentifier="preferred_username"
         inboundPropagation="required"
         tokenReuse="true">
         <protectedResourceMetadata advertisedScopes="mcp-demo-server,profile"/>
